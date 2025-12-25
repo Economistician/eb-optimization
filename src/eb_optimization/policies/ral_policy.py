@@ -23,9 +23,7 @@ optimization, not the optimization process itself.
 
 from dataclasses import dataclass
 from typing import Optional, Sequence
-
 import pandas as pd
-
 
 @dataclass(frozen=True)
 class RALPolicy:
@@ -37,9 +35,7 @@ class RALPolicy:
 
     Conceptually, RAL applies a multiplicative uplift to a baseline forecast:
 
-    $$
-    \hat{y}^{(r)} = u \cdot \hat{y}
-    $$
+    $$ \hat{y}^{(r)} = u \cdot \hat{y} $$
 
     where `u` can be either:
 
@@ -78,3 +74,56 @@ class RALPolicy:
     def is_segmented(self) -> bool:
         """Return True if the policy contains segment-level uplifts."""
         return bool(self.segment_cols) and self.uplift_table is not None and not self.uplift_table.empty
+
+    def adjust_forecast(self, df: pd.DataFrame, forecast_col: str) -> pd.Series:
+        """Apply the RAL policy to adjust the forecast values.
+
+        This method applies the global uplift to all rows, and applies segment-level uplifts
+        if the policy is segmented and matching segments exist in the `uplift_table`.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The input DataFrame containing the forecast to adjust.
+        forecast_col : str
+            The name of the column in `df` containing the forecast values to adjust.
+
+        Returns
+        -------
+        pd.Series
+            A series with the adjusted forecast values.
+        """
+        # Start with the global uplift applied to the forecast column
+        adjusted_forecast = df[forecast_col] * self.global_uplift
+
+        # Apply segment-level uplifts if available
+        if self.is_segmented():
+            # Merge uplift_table with the DataFrame based on segment columns
+            uplift_df = df.merge(self.uplift_table, on=self.segment_cols, how="left")
+            # Apply the segment-level uplift (if available) to the forecast
+            uplifted_forecast = adjusted_forecast * uplift_df["uplift"].fillna(1.0)  # Default to 1.0 if no uplift
+            return uplifted_forecast
+        return adjusted_forecast
+
+    def transform(self, df: pd.DataFrame, forecast_col: str) -> pd.DataFrame:
+        """Transform the input DataFrame by applying the forecast adjustment.
+
+        This method applies the RAL policy to adjust the forecast column and adds a new column
+        with the adjusted forecast.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The input DataFrame containing the forecast to adjust.
+        forecast_col : str
+            The name of the column in `df` containing the forecast values to adjust.
+
+        Returns
+        -------
+        pd.DataFrame
+            The transformed DataFrame with the adjusted forecast values added.
+        """
+        df_copy = df.copy()
+        adjusted_forecast = self.adjust_forecast(df_copy, forecast_col)
+        df_copy["readiness_forecast"] = adjusted_forecast
+        return df_copy
