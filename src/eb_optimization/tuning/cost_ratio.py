@@ -1,34 +1,155 @@
 from __future__ import annotations
 
 r"""
-Entity-level cost ratio (R) tuning utilities.
+Cost ratio (R) tuning utilities.
 
-This module provides DataFrame-oriented utilities for estimating an entity-specific
-underbuild-to-overbuild cost ratio from historical forecast error patterns.
-
-The primary output is a per-entity ratio:
+This module provides calibration helpers for selecting the underbuild-to-overbuild
+cost ratio:
 
 $$
-    R_e = \frac{c_{u,e}}{c_o}
+    R = \frac{c_u}{c_o}
 $$
 
-which can later be used in entity-aware evaluation workflows (e.g., computing cost-weighted
-metrics with entity-specific asymmetry parameters).
+These routines belong in **eb-optimization** because they *choose/govern* parameters
+from data over a candidate set (grid search + calibration diagnostics). They are not
+metric primitives (eb-metrics) and are not runtime policies (eb-optimization/policies).
 
-Why this lives in eb-optimization
----------------------------------
-Selecting $R_e$ from a candidate grid is a *tuning / search* task (optimization), not
-metric math (eb-metrics) and not deterministic evaluation plumbing (eb-evaluation).
+Layering:
+- search/ : reusable candidate-space utilities (grids, later kernels)
+- tuning/ : define candidate grids + objectives + return calibration artifacts
+- policies/ : frozen artifacts that apply parameters deterministically at runtime
 """
 
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
+from numpy.typing import ArrayLike
 
-__all__ = ["estimate_entity_R_from_balance"]
+from .._utils import broadcast_param, handle_sample_weight, to_1d_array
+
+__all__ = [
+    "estimate_R_cost_balance",
+    "estimate_entity_R_from_balance",
+]
 
 
+# ---------------------------------------------------------------------
+# Global calibration (array-like)
+# ---------------------------------------------------------------------
+def estimate_R_cost_balance(
+    y_true: ArrayLike,
+    y_pred: ArrayLike,
+    R_grid: Sequence[float] = (0.5, 1.0, 2.0, 3.0),
+    co: Union[float, ArrayLike] = 1.0,
+    sample_weight: ArrayLike | None = None,
+) -> float:
+    r"""
+    Estimate a global cost ratio $R = c_u / c_o$ via cost balance.
+
+    This routine selects a single, global cost ratio $R$ by searching a
+    candidate grid and choosing the value where the total weighted underbuild
+    cost is closest to the total weighted overbuild cost.
+
+    For each candidate $R$ in ``R_grid``:
+
+    $$
+    \begin{aligned}
+    c_{u,i} &= R \cdot c_{o,i} \\
+    s_i &= \max(0, y_i - \hat{y}_i) \\
+    e_i &= \max(0, \hat{y}_i - y_i) \\
+    C_u(R) &= \sum_i w_i \; c_{u,i} \; s_i \\
+    C_o(R) &= \sum_i w_i \; c_{o,i} \; e_i
+    \end{aligned}
+    $$
+
+    and the selected value is:
+
+    $$
+    R^* = \arg\min_R \; \left| C_u(R) - C_o(R) \right|.
+    $$
+
+    Parameters
+    ----------
+    y_true
+        Realized demand (non-negative), shape (n_samples,).
+    y_pred
+        Forecast demand (non-negative), shape (n_samples,). Must match ``y_true``.
+    R_grid
+        Candidate ratios to search. Only strictly positive values are considered.
+    co
+        Overbuild cost coefficient $c_o$. May be scalar or 1D array of shape (n_samples,).
+        Underbuild cost is implied as $c_{u,i} = R \cdot c_{o,i}$.
+    sample_weight
+        Optional non-negative weights (scalar not supported; use 1D array). If None,
+        all intervals receive weight 1.0.
+
+    Returns
+    -------
+    float
+        Selected cost ratio in ``R_grid`` minimizing |under_cost - over_cost|.
+
+        Tie-breaking:
+        - In the degenerate perfect-forecast case (zero error everywhere), returns
+          the candidate closest to 1.0.
+
+        - Otherwise, if multiple candidates yield the same minimal gap, the first
+          encountered candidate (in filtered grid order) is returned.
+    """
+    y_true_arr = to_1d_array(y_true, "y_true")
+    y_pred_arr = to_1d_array(y_pred, "y_pred")
+
+    if y_true_arr.shape != y_pred_arr.shape:
+        raise ValueError(
+            "y_true and y_pred must have the same shape; "
+            f"got {y_true_arr.shape} and {y_pred_arr.shape}"
+        )
+
+    if np.any(y_true_arr < 0) or np.any(y_pred_arr < 0):
+        raise ValueError("y_true and y_pred must be non-negative.")
+
+    co_arr = broadcast_param(co, y_true_arr.shape, "co")
+    if np.any(co_arr <= 0):
+        raise ValueError("co must be strictly positive.")
+
+    w = handle_sample_weight(sample_weight, y_true_arr.shape[0])
+
+    shortfall = np.maximum(0.0, y_true_arr - y_pred_arr)
+    overbuild = np.maximum(0.0, y_pred_arr - y_true_arr)
+
+    R_grid_arr = np.asarray(R_grid, dtype=float)
+    if R_grid_arr.ndim != 1 or R_grid_arr.size == 0:
+        raise ValueError("R_grid must be a non-empty 1D sequence of floats.")
+
+    positive_R = R_grid_arr[R_grid_arr > 0]
+    if positive_R.size == 0:
+        raise ValueError("R_grid must contain at least one positive value.")
+
+    # Degenerate case: perfect forecast (no error anywhere)
+    if np.all(shortfall == 0.0) and np.all(overbuild == 0.0):
+        idx = int(np.argmin(np.abs(positive_R - 1.0)))
+        return float(positive_R[idx])
+
+    best_R: float | None = None
+    best_gap: float | None = None
+
+    for R in positive_R:
+        cu_arr = R * co_arr
+
+        under_cost = float(np.sum(w * cu_arr * shortfall))
+        over_cost = float(np.sum(w * co_arr * overbuild))
+        gap = abs(under_cost - over_cost)
+
+        if best_gap is None or gap < best_gap:
+            best_gap = gap
+            best_R = float(R)
+
+    return float(best_R)
+
+
+# ---------------------------------------------------------------------
+# Entity-level calibration (DataFrame)
+# ---------------------------------------------------------------------
 def estimate_entity_R_from_balance(
     df: pd.DataFrame,
     entity_col: str,
@@ -47,86 +168,9 @@ def estimate_entity_R_from_balance(
         R_e = \frac{c_{u,e}}{c_o}
     $$
 
-    by searching over a user-provided grid of candidate ratios. For each entity, define
-    shortfall and overbuild per interval $i$:
+    by searching over a user-provided grid of candidate ratios.
 
-    $$
-        s_i = \max(0, y_i - \hat{y}_i)
-    $$
-
-    $$
-        o_i = \max(0, \hat{y}_i - y_i)
-    $$
-
-    For each candidate ratio $R \in \mathcal{R}$, set the implied underbuild cost coefficient:
-
-    $$
-        c_u(R) = R \cdot c_o
-    $$
-
-    Then compute weighted total underbuild and overbuild costs:
-
-    $$
-        C_u(R) = \sum_i w_i \; c_u(R) \; s_i
-    $$
-
-    $$
-        C_o = \sum_i w_i \; c_o \; o_i
-    $$
-
-    The selected ratio is the value that minimizes the absolute imbalance between these totals:
-
-    $$
-        R_e = \arg\min_{R \in \mathcal{R}} \left| C_u(R) - C_o \right|
-    $$
-
-    Parameters
-    ----------
-    df
-        Input table containing an entity identifier, actuals, and forecasts (and optionally weights).
-    entity_col
-        Column identifying the entity (e.g., ``"item"``, ``"sku"``, ``"location"``).
-    y_true_col
-        Column containing realized demand values $y_i$. Must be non-negative.
-    y_pred_col
-        Column containing baseline forecast values $\hat{y}_i$. Must be non-negative.
-    ratios
-        Candidate ratio grid $\mathcal{R}$. Values must be strictly positive.
-    co
-        Overbuild (excess) cost coefficient $c_o$. Must be strictly positive.
-    sample_weight_col
-        Optional column containing non-negative sample weights $w_i$. If ``None``, all rows are
-        equally weighted within each entity.
-
-    Returns
-    -------
-    pandas.DataFrame
-        One row per entity with columns:
-
-        - ``entity_col`` : entity identifier
-        - ``R`` : chosen ratio $R_e$
-        - ``cu`` : implied underbuild cost $c_{u,e} = R_e \cdot c_o$
-        - ``co`` : provided overbuild cost coefficient $c_o$
-        - ``under_cost`` : $C_u(R_e)$
-        - ``over_cost`` : $C_o$
-        - ``diff`` : $\left|C_u(R_e) - C_o\right|$
-
-    Raises
-    ------
-    KeyError
-        If required columns are missing from ``df``.
-    ValueError
-        If ``ratios`` is empty or contains non-positive values, if ``co <= 0``,
-        if any entity contains negative values, or if sample weights are negative.
-
-    Notes
-    -----
-    - This is a calibration helper for cost-ratio tuning. It does not infer economics directly
-      (margin, food cost, labor, etc.); it uses the observed error pattern under an assumed $c_o$.
-    - If an entity has zero error across all intervals (no shortfall and no overbuild), the ratio
-      in ``ratios`` closest to 1.0 is selected and under/over costs are returned as zero.
-    - Entities with strongly skewed error patterns will often select ratios at the edges of the
-      provided grid; widen the grid if needed.
+    Returns one row per entity with chosen R and supporting diagnostics.
     """
     required = {entity_col, y_true_col, y_pred_col}
     missing = required - set(df.columns)
@@ -156,20 +200,15 @@ def estimate_entity_R_from_balance(
         else:
             w = np.ones_like(y_true, dtype=float)
 
-        # Basic validation per entity
         if y_true.shape != y_pred.shape:
             raise ValueError(
                 f"For entity {entity_id!r}, y_true and y_pred have different shapes: "
                 f"{y_true.shape} vs {y_pred.shape}"
             )
         if np.any(y_true < 0) or np.any(y_pred < 0):
-            raise ValueError(
-                f"For entity {entity_id!r}, y_true and y_pred must be non-negative."
-            )
+            raise ValueError(f"For entity {entity_id!r}, y_true and y_pred must be non-negative.")
         if np.any(w < 0):
-            raise ValueError(
-                f"For entity {entity_id!r}, sample weights must be non-negative."
-            )
+            raise ValueError(f"For entity {entity_id!r}, sample weights must be non-negative.")
 
         shortfall = np.maximum(0.0, y_true - y_pred)
         overbuild = np.maximum(0.0, y_pred - y_true)
@@ -200,7 +239,6 @@ def estimate_entity_R_from_balance(
 
         for R in ratios_arr:
             cu_val = float(R * float(co))
-
             under_cost = float(np.sum(w * cu_val * shortfall))
             over_cost = float(np.sum(w * float(co) * overbuild))
             diff = abs(under_cost - over_cost)
