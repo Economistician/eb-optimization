@@ -23,7 +23,9 @@ optimization, not the optimization process itself.
 
 from dataclasses import dataclass
 from typing import Optional, Sequence
+
 import pandas as pd
+
 
 @dataclass(frozen=True)
 class RALPolicy:
@@ -67,7 +69,7 @@ class RALPolicy:
     artifacts needed to execute the adjustment.
     """
 
-    global_uplift: float
+    global_uplift: float = 1.0
     segment_cols: Sequence[str] = ()
     uplift_table: Optional[pd.DataFrame] = None
 
@@ -93,16 +95,17 @@ class RALPolicy:
         pd.Series
             A series with the adjusted forecast values.
         """
-        # Start with the global uplift applied to the forecast column
-        adjusted_forecast = df[forecast_col] * self.global_uplift
+        adjusted_forecast = df[forecast_col] * float(self.global_uplift)
 
-        # Apply segment-level uplifts if available
         if self.is_segmented():
             # Merge uplift_table with the DataFrame based on segment columns
-            uplift_df = df.merge(self.uplift_table, on=self.segment_cols, how="left")
-            # Apply the segment-level uplift (if available) to the forecast
-            uplifted_forecast = adjusted_forecast * uplift_df["uplift"].fillna(1.0)  # Default to 1.0 if no uplift
-            return uplifted_forecast
+            uplift_df = df.merge(self.uplift_table, on=list(self.segment_cols), how="left")
+
+            # Apply the segment-level uplift (if available) to the forecast.
+            # NOTE: `uplift` here is interpreted as a multiplicative factor relative to the
+            # global uplift. Missing segments default to 1.0 (no additional uplift).
+            return adjusted_forecast * uplift_df["uplift"].fillna(1.0)
+
         return adjusted_forecast
 
     def transform(self, df: pd.DataFrame, forecast_col: str) -> pd.DataFrame:
@@ -124,6 +127,5 @@ class RALPolicy:
             The transformed DataFrame with the adjusted forecast values added.
         """
         df_copy = df.copy()
-        adjusted_forecast = self.adjust_forecast(df_copy, forecast_col)
-        df_copy["readiness_forecast"] = adjusted_forecast
+        df_copy["readiness_forecast"] = self.adjust_forecast(df_copy, forecast_col)
         return df_copy
