@@ -15,7 +15,7 @@ from data over a candidate set (grid search + calibration diagnostics). They are
 metric primitives (eb-metrics) and are not runtime policies (eb-optimization/policies).
 
 Layering:
-- search/ : reusable candidate-space utilities (grids, later kernels)
+- search/ : reusable candidate-space utilities (grids, kernels)
 - tuning/ : define candidate grids + objectives + return calibration artifacts
 - policies/ : frozen artifacts that apply parameters deterministically at runtime
 """
@@ -27,6 +27,7 @@ import pandas as pd
 from numpy.typing import ArrayLike
 
 from .._utils import broadcast_param, handle_sample_weight, to_1d_array
+from ..search.kernels import argmin_over_candidates
 
 __all__ = [
     "estimate_R_cost_balance",
@@ -81,8 +82,7 @@ def estimate_R_cost_balance(
         Overbuild cost coefficient $c_o$. May be scalar or 1D array of shape (n_samples,).
         Underbuild cost is implied as $c_{u,i} = R \cdot c_{o,i}$.
     sample_weight
-        Optional non-negative weights (scalar not supported; use 1D array). If None,
-        all intervals receive weight 1.0.
+        Optional non-negative weights. If None, all intervals receive weight 1.0.
 
     Returns
     -------
@@ -92,7 +92,6 @@ def estimate_R_cost_balance(
         Tie-breaking:
         - In the degenerate perfect-forecast case (zero error everywhere), returns
           the candidate closest to 1.0.
-
         - Otherwise, if multiple candidates yield the same minimal gap, the first
           encountered candidate (in filtered grid order) is returned.
     """
@@ -130,19 +129,20 @@ def estimate_R_cost_balance(
         idx = int(np.argmin(np.abs(positive_R - 1.0)))
         return float(positive_R[idx])
 
-    best_R: float | None = None
-    best_gap: float | None = None
+    co_arr_f = co_arr.astype(float, copy=False)
+    w_f = w.astype(float, copy=False)
 
-    for R in positive_R:
-        cu_arr = R * co_arr
+    def _gap_for_R(R: float) -> float:
+        cu_arr = float(R) * co_arr_f
+        under_cost = float(np.sum(w_f * cu_arr * shortfall))
+        over_cost = float(np.sum(w_f * co_arr_f * overbuild))
+        return abs(under_cost - over_cost)
 
-        under_cost = float(np.sum(w * cu_arr * shortfall))
-        over_cost = float(np.sum(w * co_arr * overbuild))
-        gap = abs(under_cost - over_cost)
-
-        if best_gap is None or gap < best_gap:
-            best_gap = gap
-            best_R = float(R)
+    best_R, _best_gap = argmin_over_candidates(
+        candidates=positive_R,
+        score_fn=_gap_for_R,
+        tie_break="first",  # preserves prior behavior
+    )
 
     return float(best_R)
 
@@ -188,7 +188,6 @@ def estimate_entity_R_from_balance(
         raise ValueError("co must be strictly positive.")
 
     results: list[dict] = []
-
     grouped = df.groupby(entity_col, sort=False)
 
     for entity_id, g in grouped:
@@ -206,9 +205,13 @@ def estimate_entity_R_from_balance(
                 f"{y_true.shape} vs {y_pred.shape}"
             )
         if np.any(y_true < 0) or np.any(y_pred < 0):
-            raise ValueError(f"For entity {entity_id!r}, y_true and y_pred must be non-negative.")
+            raise ValueError(
+                f"For entity {entity_id!r}, y_true and y_pred must be non-negative."
+            )
         if np.any(w < 0):
-            raise ValueError(f"For entity {entity_id!r}, sample weights must be non-negative.")
+            raise ValueError(
+                f"For entity {entity_id!r}, sample weights must be non-negative."
+            )
 
         shortfall = np.maximum(0.0, y_true - y_pred)
         overbuild = np.maximum(0.0, y_pred - y_true)
@@ -231,34 +234,36 @@ def estimate_entity_R_from_balance(
             )
             continue
 
-        best_R: float | None = None
-        best_cu: float | None = None
-        best_under_cost: float | None = None
-        best_over_cost: float | None = None
-        best_diff: float | None = None
+        w_f = w.astype(float, copy=False)
+        co_f = float(co)
 
-        for R in ratios_arr:
-            cu_val = float(R * float(co))
-            under_cost = float(np.sum(w * cu_val * shortfall))
-            over_cost = float(np.sum(w * float(co) * overbuild))
-            diff = abs(under_cost - over_cost)
+        def _diff_for_R(R: float) -> float:
+            cu_val = float(R) * co_f
+            under_cost = float(np.sum(w_f * cu_val * shortfall))
+            over_cost = float(np.sum(w_f * co_f * overbuild))
+            return abs(under_cost - over_cost)
 
-            if best_diff is None or diff < best_diff:
-                best_diff = diff
-                best_R = float(R)
-                best_cu = cu_val
-                best_under_cost = under_cost
-                best_over_cost = over_cost
+        best_R, best_diff = argmin_over_candidates(
+            candidates=ratios_arr,
+            score_fn=_diff_for_R,
+            tie_break="first",  # preserves prior behavior
+        )
+
+        # Recompute diagnostics for the chosen R (single pass)
+        best_R_f = float(best_R)
+        best_cu = best_R_f * co_f
+        best_under_cost = float(np.sum(w_f * best_cu * shortfall))
+        best_over_cost = float(np.sum(w_f * co_f * overbuild))
 
         results.append(
             {
                 entity_col: entity_id,
-                "R": best_R,
-                "cu": best_cu,
-                "co": float(co),
-                "under_cost": best_under_cost,
-                "over_cost": best_over_cost,
-                "diff": best_diff,
+                "R": best_R_f,
+                "cu": float(best_cu),
+                "co": float(co_f),
+                "under_cost": float(best_under_cost),
+                "over_cost": float(best_over_cost),
+                "diff": float(best_diff),
             }
         )
 
