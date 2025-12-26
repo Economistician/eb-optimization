@@ -129,3 +129,34 @@ class RALPolicy:
         df_copy = df.copy()
         df_copy["readiness_forecast"] = self.adjust_forecast(df_copy, forecast_col)
         return df_copy
+
+
+# Convenience default policy instance (for the policies package API)
+DEFAULT_RAL_POLICY = RALPolicy()
+
+
+def apply_ral_policy(
+    df: pd.DataFrame,
+    forecast_col: str,
+    policy: RALPolicy = DEFAULT_RAL_POLICY,
+) -> pd.DataFrame:
+    """Convenience functional wrapper to apply a RALPolicy.
+
+    This is a thin wrapper around :meth:`RALPolicy.transform` used by callers/tests
+    that prefer a functional interface.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame containing the forecast column.
+    forecast_col : str
+        Name of the forecast column to adjust.
+    policy : RALPolicy
+        Policy artifact to apply. Defaults to :data:`DEFAULT_RAL_POLICY`.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of `df` with `readiness_forecast` added.
+    """
+    return policy.transform(df=df, forecast_col=forecast_col)

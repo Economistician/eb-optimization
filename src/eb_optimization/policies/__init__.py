@@ -62,11 +62,13 @@ __all__ = [
     "apply_tau_policy",
     "apply_tau_policy_hr",
     "apply_entity_tau_policy",
+
     # Cost ratio policies
     "CostRatioPolicy",
     "DEFAULT_COST_RATIO_POLICY",
     "apply_cost_ratio_policy",
     "apply_entity_cost_ratio_policy",
+
     # RAL policies
     "RALPolicy",
     "DEFAULT_RAL_POLICY",
