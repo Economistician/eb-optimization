@@ -21,7 +21,12 @@ Key rules
 - Pure, deterministic search utilities
 """
 
+from . import grid
+from . import kernels
+from . import results
+
 __all__ = [
     "grid",
     "kernels",
+    "results",
 ]

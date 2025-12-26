@@ -19,6 +19,11 @@ re-exporting function symbols. This avoids import-time breakage when internals
 are renamed during refactors.
 """
 
+from . import cost_ratio
+from . import sensitivity
+from . import tau
+from . import ral
+
 __all__ = [
     "cost_ratio",
     "sensitivity",
