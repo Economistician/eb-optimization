@@ -5,13 +5,14 @@ import pandas as pd
 import pytest
 
 from eb_optimization.tuning.cost_ratio import (
+    EntityCostRatioEstimate,
     estimate_R_cost_balance,
     estimate_entity_R_from_balance,
 )
 
 
 # =============================================================================
-# Global R calibration tests (lifted from eb-metrics)
+# Global R calibration tests
 # =============================================================================
 def test_estimate_R_cost_balance_perfect_forecast_prefers_R_near_1():
     """
@@ -97,7 +98,7 @@ def test_estimate_R_cost_balance_raises_on_invalid_R_grid():
 
 
 # =============================================================================
-# Entity-level R calibration tests (existing eb-optimization tests)
+# Entity-level R calibration tests
 # =============================================================================
 def _build_simple_panel() -> pd.DataFrame:
     """
@@ -265,7 +266,7 @@ def test_estimate_entity_R_invalid_inputs():
     """
     Basic validation tests:
     - missing required columns raises KeyError
-    - non-positive ratios raise ValueError
+    - ratios with no positive candidates raise ValueError
     - non-positive co raises ValueError
     """
     df = pd.DataFrame(
@@ -302,3 +303,180 @@ def test_estimate_entity_R_invalid_inputs():
             ratios=(0.5, 1.0),
             co=0.0,
         )
+
+
+# =============================================================================
+# New tests for entity-level artifact mode (return_result=True)
+# =============================================================================
+def test_estimate_entity_R_return_result_artifact_structure_and_curves():
+    df = _build_simple_panel()
+
+    result = estimate_entity_R_from_balance(
+        df=df,
+        entity_col="entity",
+        y_true_col="actual_qty",
+        y_pred_col="forecast_qty",
+        ratios=(0.5, 1.0, 2.0, 4.0),
+        co=1.0,
+        return_result=True,
+        selection="curve",
+    )
+
+    assert isinstance(result, EntityCostRatioEstimate)
+    assert result.entity_col == "entity"
+    assert result.method == "cost_balance"
+    assert result.tie_break == "first"
+    assert result.selection == "curve"
+
+    # Table: one row per entity, no curve DataFrames embedded in cells
+    assert isinstance(result.table, pd.DataFrame)
+    assert set(result.table["entity"]) == {"A", "B"}
+    expected_cols = {"entity", "R_star", "n", "under_cost", "over_cost", "gap", "diagnostics"}
+    assert expected_cols.issubset(result.table.columns)
+
+    # Curves: dict mapping entity -> DataFrame with required columns
+    assert set(result.curves.keys()) == {"A", "B"}
+    for ent, curve in result.curves.items():
+        assert isinstance(curve, pd.DataFrame)
+        assert {"R", "under_cost", "over_cost", "gap"}.issubset(curve.columns)
+        # grid order preserved
+        assert np.allclose(curve["R"].to_numpy(dtype=float), result.grid.astype(float))
+
+
+def test_estimate_entity_R_return_result_matches_legacy_R():
+    """
+    Ensure artifact mode selects the same R as legacy mode for the same inputs
+    (with selection='curve').
+    """
+    df = _build_simple_panel()
+    ratios = (0.5, 1.0, 2.0, 4.0)
+
+    legacy = estimate_entity_R_from_balance(
+        df=df,
+        entity_col="entity",
+        y_true_col="actual_qty",
+        y_pred_col="forecast_qty",
+        ratios=ratios,
+        co=1.0,
+    ).set_index("entity")
+
+    art = estimate_entity_R_from_balance(
+        df=df,
+        entity_col="entity",
+        y_true_col="actual_qty",
+        y_pred_col="forecast_qty",
+        ratios=ratios,
+        co=1.0,
+        return_result=True,
+        selection="curve",
+    )
+
+    art_table = art.table.set_index("entity")
+
+    for ent in ["A", "B"]:
+        assert np.isclose(float(legacy.loc[ent, "R"]), float(art_table.loc[ent, "R_star"]))
+        assert np.isclose(float(legacy.loc[ent, "diff"]), float(art_table.loc[ent, "gap"]))
+
+
+def test_estimate_entity_R_artifact_degenerate_entity_has_zero_curve_and_min_gap():
+    """
+    In artifact mode, degenerate entities (perfect forecasts) should:
+    - choose R closest to 1.0
+    - have a curve with all zeros (under_cost, over_cost, gap)
+    - have diagnostics indicating degenerate_perfect_forecast=True
+    """
+    df = pd.DataFrame(
+        {
+            "entity": ["A", "A", "B", "B"],
+            "actual_qty": [10.0, 12.0, 5.0, 7.0],
+            "forecast_qty": [10.0, 12.0, 5.0, 7.0],
+        }
+    )
+    ratios = (0.4, 0.9, 1.3, 3.0)
+    expected_R = 0.9
+
+    res = estimate_entity_R_from_balance(
+        df=df,
+        entity_col="entity",
+        y_true_col="actual_qty",
+        y_pred_col="forecast_qty",
+        ratios=ratios,
+        co=2.0,
+        return_result=True,
+        selection="curve",
+    )
+
+    table = res.table.set_index("entity")
+    for ent in ["A", "B"]:
+        assert np.isclose(float(table.loc[ent, "R_star"]), expected_R)
+        assert np.isclose(float(table.loc[ent, "gap"]), 0.0)
+        diag = table.loc[ent, "diagnostics"]
+        assert isinstance(diag, dict)
+        assert diag["degenerate_perfect_forecast"] is True
+
+        curve = res.curves[ent]
+        assert np.allclose(curve["under_cost"].to_numpy(dtype=float), 0.0)
+        assert np.allclose(curve["over_cost"].to_numpy(dtype=float), 0.0)
+        assert np.allclose(curve["gap"].to_numpy(dtype=float), 0.0)
+
+
+def test_estimate_entity_R_filters_non_positive_ratios_in_artifact_mode_grid():
+    """
+    New logic: ratios are filtered to strictly positive candidates (order preserved).
+    This test ensures the returned artifact grid excludes non-positive values and
+    that each curve uses the same filtered grid.
+    """
+    df = _build_simple_panel()
+    ratios = (-1.0, 0.0, 0.5, 1.0, 2.0)
+
+    res = estimate_entity_R_from_balance(
+        df=df,
+        entity_col="entity",
+        y_true_col="actual_qty",
+        y_pred_col="forecast_qty",
+        ratios=ratios,
+        co=1.0,
+        return_result=True,
+        selection="curve",
+    )
+
+    assert np.allclose(res.grid, np.asarray([0.5, 1.0, 2.0], dtype=float))
+    for curve in res.curves.values():
+        assert np.allclose(curve["R"].to_numpy(dtype=float), res.grid.astype(float))
+
+
+def test_estimate_entity_R_selection_kernel_matches_curve_selection():
+    """
+    New logic: entity-level selection supports 'kernel' and should match 'curve'
+    for deterministic tie-break='first' scoring based on curve gaps.
+    """
+    df = _build_simple_panel()
+    ratios = (0.5, 1.0, 2.0, 4.0)
+
+    res_curve = estimate_entity_R_from_balance(
+        df=df,
+        entity_col="entity",
+        y_true_col="actual_qty",
+        y_pred_col="forecast_qty",
+        ratios=ratios,
+        co=1.0,
+        return_result=True,
+        selection="curve",
+    )
+    res_kernel = estimate_entity_R_from_balance(
+        df=df,
+        entity_col="entity",
+        y_true_col="actual_qty",
+        y_pred_col="forecast_qty",
+        ratios=ratios,
+        co=1.0,
+        return_result=True,
+        selection="kernel",
+    )
+
+    t_curve = res_curve.table.set_index("entity")
+    t_kernel = res_kernel.table.set_index("entity")
+
+    for ent in ["A", "B"]:
+        assert np.isclose(float(t_curve.loc[ent, "R_star"]), float(t_kernel.loc[ent, "R_star"]))
+        assert np.isclose(float(t_curve.loc[ent, "gap"]), float(t_kernel.loc[ent, "gap"]))
