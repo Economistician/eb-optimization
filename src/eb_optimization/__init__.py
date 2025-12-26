@@ -1,28 +1,35 @@
 from __future__ import annotations
 
 """
-eb-optimization
-===============
+`eb_optimization` — optimization and tuning layer for the Electric Barometer ecosystem.
 
-Optimization, tuning, and policy governance components for the
-Electric Barometer ecosystem.
+This package contains the **optimization layer** of Electric Barometer:
 
-This package owns:
-- discrete search mechanics
-- parameter tuning and calibration logic
-- frozen policy artifacts for downstream execution
+- **search**: generic, reusable search mechanics (grids, tie-breaking kernels)
+- **tuning**: calibration and selection utilities (e.g., cost-ratio tuning, sensitivity sweeps)
+- **policies**: frozen, declarative policy artifacts for downstream execution
 
-It does NOT define metric primitives or evaluation math.
+It intentionally does **not** define metric primitives or evaluation math.
+Those live in `eb-metrics` (and orchestration lives in `eb-evaluation`).
 """
 
 from importlib.metadata import PackageNotFoundError, version
 
 
 def _resolve_version() -> str:
+    """
+    Resolve the installed distribution version.
+
+    Returns
+    -------
+    str
+        Installed version string. If the distribution is not installed (e.g., running
+        from source), returns ``"0.0.0"``.
+    """
     try:
+        # Must match the distribution name in pyproject.toml ([project].name)
         return version("eb-optimization")
     except PackageNotFoundError:
-        # Editable installs / source checkouts
         return "0.0.0"
 
 
