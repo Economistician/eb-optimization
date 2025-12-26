@@ -3,8 +3,8 @@ from __future__ import annotations
 r"""
 CWSL cost-ratio sensitivity utilities.
 
-This module provides DataFrame-oriented helpers for computing a *sensitivity curve*
-of Cost-Weighted Service Loss (CWSL) across a grid of cost ratios:
+This module provides helpers for computing a *sensitivity curve* of
+Cost-Weighted Service Loss (CWSL) across a grid of cost ratios:
 
 $$
 R = \frac{c_u}{c_o}
@@ -16,18 +16,17 @@ $$
 c_u = R \cdot c_o
 $$
 
-The primary helper in this module evaluates :func:`eb_metrics.metrics.cwsl_sensitivity`
-over a ratio grid, optionally per group, returning a tidy long-form DataFrame suitable for:
+Why this lives in eb-optimization
+--------------------------------
+Computing a metric across a candidate grid of hyperparameters (like a cost ratio R)
+is an *analysis / calibration workflow* rather than a metric primitive.
 
-- diagnostic plots,
-- governance checks,
-- hyperparameter selection workflows.
+- **eb-metrics** remains the source of truth for *metric math* (e.g., ``cwsl``).
+- **eb-optimization** owns grid-based evaluation, diagnostics, and tuning utilities.
 
-Design intent
--------------
-- This code lives in **eb-optimization** because it performs grid-based evaluation over a
-  hyperparameter (R) and is frequently used as part of tuning / model selection.
-- Metric math remains a single source of truth in **eb-metrics**.
+This module therefore contains:
+- ``cwsl_sensitivity``: array-level sweep (grid evaluation)
+- ``compute_cwsl_sensitivity_df``: DataFrame-oriented wrapper (tidy long-form output)
 """
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
@@ -35,9 +34,9 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
 import numpy as np
 import pandas as pd
 
-from eb_metrics.metrics import cwsl_sensitivity
+from eb_metrics.metrics.loss import cwsl
 
-__all__ = ["compute_cwsl_sensitivity_df"]
+__all__ = ["cwsl_sensitivity", "compute_cwsl_sensitivity_df"]
 
 
 def _as_1d_float_array(x: Sequence[float] | np.ndarray | Iterable[float]) -> np.ndarray:
@@ -45,15 +44,15 @@ def _as_1d_float_array(x: Sequence[float] | np.ndarray | Iterable[float]) -> np.
     return np.asarray(list(x), dtype=float).reshape(-1)
 
 
-def _normalize_R_list(R_list: Sequence[float]) -> np.ndarray:
+def _normalize_R_list(R_list: Sequence[float] | np.ndarray | Iterable[float]) -> np.ndarray:
     """
     Normalize and validate a candidate R grid.
 
-    Behavior is intentionally backward-compatible:
-
+    Backward-compatible behavior:
     - Non-finite values are dropped.
     - Non-positive values (R <= 0) are dropped.
     - If no valid values remain, raises ValueError.
+    - De-duplicates and sorts for stable outputs.
 
     Parameters
     ----------
@@ -68,13 +67,12 @@ def _normalize_R_list(R_list: Sequence[float]) -> np.ndarray:
     Raises
     ------
     ValueError
-        If `R_list` is empty / not 1D, or if no valid ratios remain after filtering.
+        If the candidate list is empty or contains no valid ratios after filtering.
     """
     R_arr = _as_1d_float_array(R_list)
     if R_arr.ndim != 1 or R_arr.size == 0:
         raise ValueError("R_list must be a non-empty 1D sequence of floats.")
 
-    # Filter non-finite and non-positive values (backward-compatible behavior)
     R_arr = R_arr[np.isfinite(R_arr)]
     R_arr = R_arr[R_arr > 0]
 
@@ -83,9 +81,110 @@ def _normalize_R_list(R_list: Sequence[float]) -> np.ndarray:
             "R_list contains no valid ratios after filtering. Provide at least one R > 0."
         )
 
-    # De-dup and sort for stable outputs
-    R_arr = np.unique(R_arr)
-    return R_arr
+    return np.unique(R_arr)
+
+
+def cwsl_sensitivity(
+    y_true: np.ndarray | Sequence[float],
+    y_pred: np.ndarray | Sequence[float],
+    *,
+    R_list: Sequence[float] | np.ndarray | Iterable[float] = (0.5, 1.0, 2.0, 3.0),
+    co: Union[float, np.ndarray] = 1.0,
+    sample_weight: Optional[np.ndarray | Sequence[float]] = None,
+) -> Dict[float, float]:
+    r"""
+    Evaluate CWSL across a grid of cost ratios (cost sensitivity analysis).
+
+    For each candidate ratio:
+
+    $$ R = \frac{c_u}{c_o} $$
+
+    holding ``co`` fixed and setting:
+
+    $$ c_u = R \cdot c_o $$
+
+    Parameters
+    ----------
+    y_true
+        Realized demand values (non-negative).
+    y_pred
+        Forecast values (non-negative).
+    R_list
+        Candidate cost ratios to evaluate. Non-finite and non-positive values are ignored.
+    co
+        Overbuild cost coefficient. Can be scalar or per-interval array.
+    sample_weight
+        Optional non-negative weights per interval.
+
+    Returns
+    -------
+    dict[float, float]
+        Mapping ``{R: cwsl_value}`` for each valid ``R``.
+
+    Raises
+    ------
+    ValueError
+        If no valid ratios remain after filtering, if inputs are invalid, or if
+        sample_weight contains negatives.
+    """
+    y_true_arr = np.asarray(y_true, dtype=float).reshape(-1)
+    y_pred_arr = np.asarray(y_pred, dtype=float).reshape(-1)
+
+    if y_true_arr.ndim != 1 or y_pred_arr.ndim != 1:
+        raise ValueError("y_true and y_pred must be 1D arrays.")
+    if y_true_arr.shape != y_pred_arr.shape:
+        raise ValueError(
+            "y_true and y_pred must have the same shape; "
+            f"got {y_true_arr.shape} and {y_pred_arr.shape}"
+        )
+    if np.any(y_true_arr < 0) or np.any(y_pred_arr < 0):
+        raise ValueError("y_true and y_pred must be non-negative.")
+
+    if sample_weight is not None:
+        w = np.asarray(sample_weight, dtype=float).reshape(-1)
+        if w.shape != y_true_arr.shape:
+            raise ValueError(
+                f"sample_weight must have shape {y_true_arr.shape}; got {w.shape}"
+            )
+        if np.any(w < 0):
+            raise ValueError("sample_weight must be non-negative.")
+    else:
+        w = None
+
+    # normalize candidate grid
+    R_arr = _normalize_R_list(R_list)
+
+    # validate co
+    if isinstance(co, np.ndarray):
+        co_arr = np.asarray(co, dtype=float).reshape(-1)
+        if co_arr.shape != y_true_arr.shape:
+            raise ValueError(f"co must have shape {y_true_arr.shape}; got {co_arr.shape}")
+        if np.any(co_arr <= 0):
+            raise ValueError("co must be strictly positive.")
+        co_val: Union[float, np.ndarray] = co_arr
+    else:
+        co_float = float(co)
+        if co_float <= 0:
+            raise ValueError("co must be strictly positive.")
+        co_val = co_float
+
+    results: Dict[float, float] = {}
+
+    for R in R_arr:
+        # cu = R * co (supports scalar or per-interval array)
+        cu_val = float(R) * co_val  # type: ignore[operator]
+
+        value = cwsl(
+            y_true=y_true_arr,
+            y_pred=y_pred_arr,
+            cu=cu_val,
+            co=co_val,
+            sample_weight=w,
+        )
+        results[float(R)] = float(value)
+
+    # R_arr is guaranteed non-empty; results should be non-empty
+    return results
 
 
 def compute_cwsl_sensitivity_df(
@@ -101,8 +200,7 @@ def compute_cwsl_sensitivity_df(
     r"""
     Compute CWSL sensitivity curves from a DataFrame.
 
-    This is a DataFrame-level wrapper around :func:`eb_metrics.metrics.cwsl_sensitivity`.
-    It evaluates CWSL over a grid of cost ratios:
+    Evaluates CWSL over a grid of cost ratios:
 
     $$ R = \frac{c_u}{c_o} $$
 
@@ -121,33 +219,23 @@ def compute_cwsl_sensitivity_df(
     forecast_col
         Column containing forecast values.
     R_list
-        Candidate ratios to evaluate.
-
-        Backward-compatible behavior:
-        - non-finite values are ignored
-        - non-positive values (R <= 0) are ignored
-        - if no valid values remain, a ValueError is raised
+        Candidate ratios to evaluate. Non-finite and non-positive values are ignored.
     co
-        Overbuild cost specification.
-
+        Overbuild cost specification:
         - If ``float``: constant $c_o$ applied to all rows and groups.
         - If ``str``: name of a column in ``df`` containing per-row $c_o(i)$ values.
     group_cols
         Optional grouping columns. If ``None`` or empty, the entire DataFrame is treated
         as a single group.
     sample_weight_col
-        Optional column name containing non-negative sample weights per row. If provided,
-        weights are passed as ``sample_weight`` to the underlying sensitivity computation.
+        Optional column name containing non-negative sample weights per row.
 
     Returns
     -------
     pandas.DataFrame
         Long-form table of sensitivity results with columns:
-
         - if not grouped: ``["R", "CWSL"]``
         - if grouped: ``group_cols + ["R", "CWSL"]``
-
-        Each row corresponds to one (group, R) pair.
 
     Raises
     ------
@@ -155,11 +243,6 @@ def compute_cwsl_sensitivity_df(
         If required columns are missing from ``df``.
     ValueError
         If no valid ratios remain after filtering, or if sample weights are negative.
-
-    Notes
-    -----
-    - This function delegates metric math to `eb-metrics` and only handles DataFrame plumbing.
-    - `cwsl_sensitivity` determines exact behavior for non-finite values in inputs.
     """
     gcols = [] if group_cols is None else list(group_cols)
 
@@ -176,7 +259,7 @@ def compute_cwsl_sensitivity_df(
     if missing:
         raise KeyError(f"Missing required columns in df: {missing}")
 
-    # ---- validation: R grid ----
+    # ---- validation: R grid (for early failure and stable ordering) ----
     R_arr = _normalize_R_list(R_list)
 
     # ---- validation: weights ----
