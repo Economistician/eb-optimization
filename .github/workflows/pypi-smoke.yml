@@ -26,4 +26,4 @@ jobs:
 
       - name: Import smoke
         run: |
-          python -c "import eb_metrics; print('eb-optimization PyPI import OK')"
+          python -c "import eb_optimization; print('eb-optimization PyPI import OK')"
