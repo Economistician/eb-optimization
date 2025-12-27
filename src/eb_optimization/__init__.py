@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
+
 """
 `eb_optimization` — optimization and tuning layer for the Electric Barometer ecosystem.
 
@@ -12,8 +14,6 @@ This package contains the **optimization layer** of Electric Barometer:
 It intentionally does **not** define metric primitives or evaluation math.
 Those live in `eb-metrics` (and orchestration lives in `eb-evaluation`).
 """
-
-from importlib.metadata import PackageNotFoundError, version
 
 
 def _resolve_version() -> str:

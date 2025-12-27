@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
-from eb_optimization.tuning.ral import tune_ral_policy
+
 from eb_metrics.metrics import cwsl
+from eb_optimization.tuning.ral import tune_ral_policy
 
 
 def _make_global_df() -> pd.DataFrame:

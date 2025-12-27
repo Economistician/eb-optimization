@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from eb_optimization.policies.cost_ratio_policy import (
-    CostRatioPolicy,
     DEFAULT_COST_RATIO_POLICY,
+    CostRatioPolicy,
     apply_cost_ratio_policy,
     apply_entity_cost_ratio_policy,
 )

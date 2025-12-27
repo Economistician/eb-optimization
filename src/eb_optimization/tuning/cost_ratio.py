@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""
 Cost ratio (R) tuning utilities.
 
@@ -77,12 +75,15 @@ Serialization guidance
 - Full per-entity curves are kept in the `curves` mapping to avoid object dtype columns.
 """
 
+from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Optional, Sequence, Union
+from typing import Any, Literal
 
 import numpy as np
-import pandas as pd
 from numpy.typing import ArrayLike
+import pandas as pd
 
 from .._utils import broadcast_param, handle_sample_weight, to_1d_array
 from ..search.kernels import argmin_over_candidates
@@ -200,7 +201,7 @@ def estimate_R_cost_balance(
     y_true: ArrayLike,
     y_pred: ArrayLike,
     R_grid: Sequence[float] = (0.5, 1.0, 2.0, 3.0),
-    co: Union[float, ArrayLike] = 1.0,
+    co: float | ArrayLike = 1.0,
     sample_weight: ArrayLike | None = None,
     *,
     return_curve: bool = False,
@@ -368,9 +369,7 @@ def estimate_R_cost_balance(
         {
             "R": positive_R.astype(float),
             "under_cost": np.asarray(under_list, dtype=float),
-            "over_cost": np.full(
-                shape=positive_R.shape, fill_value=over_cost_const, dtype=float
-            ),
+            "over_cost": np.full(shape=positive_R.shape, fill_value=over_cost_const, dtype=float),
             "gap": np.asarray(gap_list, dtype=float),
         }
     )
@@ -388,8 +387,8 @@ def estimate_R_cost_balance(
         # Build a direct index map to avoid per-candidate np.where lookups.
         idx_map = {float(r): i for i, r in enumerate(r_vals.tolist())}
 
-        def _gap_for_R(R: float) -> float:
-            return float(gap_vals[idx_map[float(R)]])
+        def _gap_for_R(R: float, *, _gap_vals=gap_vals, _idx_map=idx_map) -> float:
+            return float(_gap_vals[_idx_map[float(R)]])
 
         best_R, _best_gap = argmin_over_candidates(
             candidates=positive_R,
@@ -431,7 +430,7 @@ def estimate_entity_R_from_balance(
     y_pred_col: str,
     ratios: Sequence[float] = (0.5, 1.0, 2.0, 3.0),
     co: float = 1.0,
-    sample_weight_col: Optional[str] = None,
+    sample_weight_col: str | None = None,
     *,
     return_result: bool = False,
     selection: Literal["curve", "kernel"] = "curve",
@@ -504,7 +503,7 @@ def estimate_entity_R_from_balance(
     if ratios_arr.ndim != 1 or ratios_arr.size == 0:
         raise ValueError("ratios must be a non-empty 1D sequence of floats.")
 
-    # (Edit #3) Mirror global: filter to strictly positive candidates (and preserve order)
+    # Mirror global: filter to strictly positive candidates (and preserve order)
     positive_R = ratios_arr[ratios_arr > 0]
     if positive_R.size == 0:
         raise ValueError("ratios must contain at least one positive value.")
@@ -536,13 +535,9 @@ def estimate_entity_R_from_balance(
                 f"{y_true.shape} vs {y_pred.shape}"
             )
         if np.any(y_true < 0) or np.any(y_pred < 0):
-            raise ValueError(
-                f"For entity {entity_id!r}, y_true and y_pred must be non-negative."
-            )
+            raise ValueError(f"For entity {entity_id!r}, y_true and y_pred must be non-negative.")
         if np.any(w < 0):
-            raise ValueError(
-                f"For entity {entity_id!r}, sample weights must be non-negative."
-            )
+            raise ValueError(f"For entity {entity_id!r}, sample weights must be non-negative.")
 
         shortfall = np.maximum(0.0, y_true - y_pred)
         overbuild = np.maximum(0.0, y_pred - y_true)
@@ -559,7 +554,7 @@ def estimate_entity_R_from_balance(
             R_star = float(positive_R[idx])
             cu_star = R_star * co_f
 
-            # Legacy row (Edit #2: keep legacy names in legacy mode)
+            # Legacy row (keep legacy names in legacy mode)
             legacy_rows.append(
                 {
                     entity_col: entity_id,
@@ -602,7 +597,7 @@ def estimate_entity_R_from_balance(
                 )
             continue
 
-        # Build sensitivity curve for this entity (Edit #4)
+        # Build sensitivity curve for this entity
         under_list: list[float] = []
         gap_list: list[float] = []
 
@@ -624,7 +619,7 @@ def estimate_entity_R_from_balance(
             }
         )
 
-        # Select R* (Edit #1 / selection parity with global)
+        # Select R*
         if selection == "curve":
             idx = int(np.argmin(curve["gap"].to_numpy()))
             R_star = float(curve["R"].to_numpy()[idx])
@@ -633,8 +628,8 @@ def estimate_entity_R_from_balance(
             gap_vals = curve["gap"].to_numpy()
             idx_map = {float(r): i for i, r in enumerate(r_vals.tolist())}
 
-            def _gap_for_R(R: float) -> float:
-                return float(gap_vals[idx_map[float(R)]])
+            def _gap_for_R(R: float, *, _gap_vals=gap_vals, _idx_map=idx_map) -> float:
+                return float(_gap_vals[_idx_map[float(R)]])
 
             best_R, _best_gap = argmin_over_candidates(
                 candidates=positive_R,
@@ -663,7 +658,7 @@ def estimate_entity_R_from_balance(
         if return_result:
             curves[entity_id] = curve
 
-            # (Edit #5) Ensure diagnostics are JSON-serializable simple types
+            # Ensure diagnostics are JSON-serializable simple types
             diagnostics = {
                 "over_cost_const": float(over_cost_const),
                 "min_gap": float(min_gap),

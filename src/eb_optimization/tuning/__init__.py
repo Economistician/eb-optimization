@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Tuning utilities for the Electric Barometer ecosystem.
 
@@ -19,14 +17,13 @@ re-exporting function symbols. This avoids import-time breakage when internals
 are renamed during refactors.
 """
 
-from . import cost_ratio
-from . import sensitivity
-from . import tau
-from . import ral
+from __future__ import annotations
+
+from . import cost_ratio, ral, sensitivity, tau
 
 __all__ = [
     "cost_ratio",
+    "ral",
     "sensitivity",
     "tau",
-    "ral",
 ]

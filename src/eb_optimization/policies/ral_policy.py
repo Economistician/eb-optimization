@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Policy artifacts for the Readiness Adjustment Layer (RAL).
 
@@ -21,8 +19,9 @@ Policies are artifacts, not algorithms. They encode *decisions* derived from
 optimization, not the optimization process itself.
 """
 
-from dataclasses import dataclass
-from typing import Optional, Sequence
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -70,12 +69,16 @@ class RALPolicy:
     """
 
     global_uplift: float = 1.0
-    segment_cols: Sequence[str] = ()
-    uplift_table: Optional[pd.DataFrame] = None
+    segment_cols: list[str] = field(default_factory=list)
+    uplift_table: pd.DataFrame | None = None
 
     def is_segmented(self) -> bool:
         """Return True if the policy contains segment-level uplifts."""
-        return bool(self.segment_cols) and self.uplift_table is not None and not self.uplift_table.empty
+        return (
+            bool(self.segment_cols)
+            and self.uplift_table is not None
+            and not self.uplift_table.empty
+        )
 
     def adjust_forecast(self, df: pd.DataFrame, forecast_col: str) -> pd.Series:
         """Apply the RAL policy to adjust the forecast values.

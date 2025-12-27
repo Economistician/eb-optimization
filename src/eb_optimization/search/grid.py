@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Grid construction utilities for optimization search spaces.
 
@@ -21,8 +19,12 @@ This utility favors bounded, discrete search spaces for interpretability, audita
 and deployability of learned policies.
 """
 
-import numpy as np
+from __future__ import annotations
+
 import math
+
+import numpy as np
+
 
 def make_float_grid(x_min: float, x_max: float, step: float, decimals: int = 10) -> np.ndarray:
     r"""Create a numerically robust 1D grid over a closed interval.

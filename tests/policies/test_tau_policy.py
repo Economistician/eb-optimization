@@ -9,9 +9,9 @@ import pytest
 
 from eb_optimization.policies.tau_policy import (  # type: ignore
     TauPolicy,
+    apply_entity_tau_policy,
     apply_tau_policy,
     apply_tau_policy_hr,
-    apply_entity_tau_policy,
 )
 
 try:
@@ -28,7 +28,7 @@ def _taupolicy_init_params() -> set[str]:
     return set(sig.parameters.keys())
 
 
-def _first_present(keys: Tuple[str, ...], haystack: set[str]) -> str | None:
+def _first_present(keys: tuple[str, ...], haystack: set[str]) -> str | None:
     for k in keys:
         if k in haystack:
             return k
@@ -38,7 +38,7 @@ def _first_present(keys: Tuple[str, ...], haystack: set[str]) -> str | None:
 def make_policy(
     *,
     method: str = "target_hit_rate",
-    estimate_kwargs: Dict[str, Any] | None = None,
+    estimate_kwargs: dict[str, Any] | None = None,
     **overrides: Any,
 ) -> TauPolicy:
     """
@@ -53,7 +53,7 @@ def make_policy(
     """
     init_params = _taupolicy_init_params()
 
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
 
     if "method" in init_params:
         payload["method"] = method
@@ -91,7 +91,7 @@ def _unpack_tau_result(res: Any) -> tuple[float, dict]:
 
     # dataclass-like
     if hasattr(res, "tau"):
-        tau = float(getattr(res, "tau"))
+        tau = float(res.tau)
         diag = getattr(res, "diagnostics", {})
         return tau, dict(diag or {})
 

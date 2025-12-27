@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""
 CWSL cost-ratio sensitivity utilities.
 
@@ -29,14 +27,17 @@ This module therefore contains:
 - ``compute_cwsl_sensitivity_df``: DataFrame-oriented wrapper (tidy long-form output)
 """
 
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
+from __future__ import annotations
+
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from eb_metrics.metrics.loss import cwsl
 
-__all__ = ["cwsl_sensitivity", "compute_cwsl_sensitivity_df"]
+__all__ = ["compute_cwsl_sensitivity_df", "cwsl_sensitivity"]
 
 
 def _as_1d_float_array(x: Sequence[float] | np.ndarray | Iterable[float]) -> np.ndarray:
@@ -89,9 +90,9 @@ def cwsl_sensitivity(
     y_pred: np.ndarray | Sequence[float],
     *,
     R_list: Sequence[float] | np.ndarray | Iterable[float] = (0.5, 1.0, 2.0, 3.0),
-    co: Union[float, np.ndarray] = 1.0,
-    sample_weight: Optional[np.ndarray | Sequence[float]] = None,
-) -> Dict[float, float]:
+    co: float | np.ndarray = 1.0,
+    sample_weight: np.ndarray | Sequence[float] | None = None,
+) -> dict[float, float]:
     r"""
     Evaluate CWSL across a grid of cost ratios (cost sensitivity analysis).
 
@@ -143,9 +144,7 @@ def cwsl_sensitivity(
     if sample_weight is not None:
         w = np.asarray(sample_weight, dtype=float).reshape(-1)
         if w.shape != y_true_arr.shape:
-            raise ValueError(
-                f"sample_weight must have shape {y_true_arr.shape}; got {w.shape}"
-            )
+            raise ValueError(f"sample_weight must have shape {y_true_arr.shape}; got {w.shape}")
         if np.any(w < 0):
             raise ValueError("sample_weight must be non-negative.")
     else:
@@ -161,14 +160,14 @@ def cwsl_sensitivity(
             raise ValueError(f"co must have shape {y_true_arr.shape}; got {co_arr.shape}")
         if np.any(co_arr <= 0):
             raise ValueError("co must be strictly positive.")
-        co_val: Union[float, np.ndarray] = co_arr
+        co_val: float | np.ndarray = co_arr
     else:
         co_float = float(co)
         if co_float <= 0:
             raise ValueError("co must be strictly positive.")
         co_val = co_float
 
-    results: Dict[float, float] = {}
+    results: dict[float, float] = {}
 
     for R in R_arr:
         # cu = R * co (supports scalar or per-interval array)
@@ -193,9 +192,9 @@ def compute_cwsl_sensitivity_df(
     actual_col: str = "actual_qty",
     forecast_col: str = "forecast_qty",
     R_list: Sequence[float] = (0.5, 1.0, 2.0, 3.0),
-    co: Union[float, str] = 1.0,
-    group_cols: Optional[Sequence[str]] = None,
-    sample_weight_col: Optional[str] = None,
+    co: float | str = 1.0,
+    group_cols: Sequence[str] | None = None,
+    sample_weight_col: str | None = None,
 ) -> pd.DataFrame:
     r"""
     Compute CWSL sensitivity curves from a DataFrame.
@@ -269,7 +268,7 @@ def compute_cwsl_sensitivity_df(
             raise ValueError("sample weights must be non-negative.")
 
     # ---- compute ----
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     if len(gcols) == 0:
         iter_groups = [((None,), df)]
@@ -283,16 +282,11 @@ def compute_cwsl_sensitivity_df(
         y_true = g[actual_col].to_numpy(dtype=float)
         y_pred = g[forecast_col].to_numpy(dtype=float)
 
-        co_value: Union[float, np.ndarray]
-        if isinstance(co, str):
-            co_value = g[co].to_numpy(dtype=float)
-        else:
-            co_value = float(co)
+        co_value: float | np.ndarray
+        co_value = g[co].to_numpy(dtype=float) if isinstance(co, str) else float(co)
 
         sample_weight = (
-            g[sample_weight_col].to_numpy(dtype=float)
-            if sample_weight_col is not None
-            else None
+            g[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
         )
 
         sensitivity_map = cwsl_sensitivity(
@@ -304,16 +298,11 @@ def compute_cwsl_sensitivity_df(
         )
 
         for R_val, cwsl_val in sensitivity_map.items():
-            row: Dict[str, Any] = {"R": float(R_val), "CWSL": float(cwsl_val)}
-            for col, value in zip(gcols, keys):
+            row: dict[str, Any] = {"R": float(R_val), "CWSL": float(cwsl_val)}
+            for col, value in zip(gcols, keys, strict=False):
                 row[col] = value
             results.append(row)
 
     result_df = pd.DataFrame(results)
-
-    if len(gcols) > 0:
-        result_df = result_df[gcols + ["R", "CWSL"]]
-    else:
-        result_df = result_df[["R", "CWSL"]]
-
+    result_df = result_df[[*gcols, "R", "CWSL"]] if len(gcols) > 0 else result_df[["R", "CWSL"]]
     return result_df

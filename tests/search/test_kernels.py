@@ -28,14 +28,16 @@ They serve as reusable building blocks for higher-level tuning logic
 across the Electric Barometer ecosystem.
 """
 
-from typing import Callable, Iterable, Literal, TypeVar
+from collections.abc import Callable, Iterable
+from typing import Literal, TypeVar
+
 import numpy as np
 
 T = TypeVar("T")
 
 __all__ = [
-    "argmin_over_candidates",
     "argmax_over_candidates",
+    "argmin_over_candidates",
 ]
 
 

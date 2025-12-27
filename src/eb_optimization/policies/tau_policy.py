@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Tau (τ) policy artifacts for eb-optimization.
 
@@ -11,18 +9,16 @@ This module defines *frozen governance* for selecting a tolerance τ used by HR@
 Policies should be stable, auditable, and safe to apply at runtime.
 """
 
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Mapping, Tuple, Union
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from eb_optimization.tuning.tau import (
-    TauMethod,
-    estimate_tau,
-    estimate_entity_tau,
-    hr_at_tau,
-)
+from eb_optimization.tuning.tau import TauMethod, estimate_entity_tau, estimate_tau, hr_at_tau
 
 
 @dataclass(frozen=True)
@@ -44,17 +40,13 @@ class TauPolicy:
     min_n: int = 30
 
     # Passed to estimate_tau(...)
-    estimate_kwargs: Mapping[str, Any] = None  # type: ignore[assignment]
+    estimate_kwargs: Mapping[str, Any] = field(default_factory=dict)
 
     # Governance
     cap_with_global: bool = False
     global_cap_quantile: float = 0.99
 
     def __post_init__(self) -> None:
-        # dataclasses + Mapping default guard
-        if self.estimate_kwargs is None:  # type: ignore[truthy-bool]
-            object.__setattr__(self, "estimate_kwargs", {})
-
         if self.min_n < 1:
             raise ValueError(f"min_n must be >= 1. Got {self.min_n}.")
         if not (0.0 < self.global_cap_quantile <= 1.0):
@@ -80,10 +72,10 @@ DEFAULT_TAU_POLICY = TauPolicy(
 
 
 def apply_tau_policy(
-    y: Union[pd.Series, np.ndarray, Iterable[float]],
-    yhat: Union[pd.Series, np.ndarray, Iterable[float]],
+    y: pd.Series | np.ndarray | Iterable[float],
+    yhat: pd.Series | np.ndarray | Iterable[float],
     policy: TauPolicy = DEFAULT_TAU_POLICY,
-) -> Tuple[float, Dict[str, Any]]:
+) -> tuple[float, dict[str, Any]]:
     """
     Apply a frozen τ policy to produce τ (global).
 
@@ -101,10 +93,10 @@ def apply_tau_policy(
 
 
 def apply_tau_policy_hr(
-    y: Union[pd.Series, np.ndarray, Iterable[float]],
-    yhat: Union[pd.Series, np.ndarray, Iterable[float]],
+    y: pd.Series | np.ndarray | Iterable[float],
+    yhat: pd.Series | np.ndarray | Iterable[float],
     policy: TauPolicy = DEFAULT_TAU_POLICY,
-) -> Tuple[float, float, Dict[str, Any]]:
+) -> tuple[float, float, dict[str, Any]]:
     """
     Apply τ policy, then compute HR@τ.
 
@@ -148,9 +140,9 @@ def apply_entity_tau_policy(
 
 
 __all__ = [
-    "TauPolicy",
     "DEFAULT_TAU_POLICY",
+    "TauPolicy",
+    "apply_entity_tau_policy",
     "apply_tau_policy",
     "apply_tau_policy_hr",
-    "apply_entity_tau_policy",
 ]

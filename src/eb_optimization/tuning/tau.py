@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 r"""
 Data-driven tolerance (τ) selection utilities for HR@τ.
 
@@ -50,26 +48,28 @@ The entity-level estimator runs the same procedure per entity, optionally cappin
 entity τ by a global cap derived from the full residual distribution.
 """
 
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Literal, Mapping, Optional, Tuple, Union
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 
-# Single source of truth for the HR@τ metric math
 from eb_metrics.metrics.service import hr_at_tau as _hr_at_tau_core
 
 TauMethod = Literal["target_hit_rate", "knee", "utility"]
 
 
-def _to_1d_float_array(x: Union[pd.Series, np.ndarray, Iterable[float]]) -> np.ndarray:
+def _to_1d_float_array(x: pd.Series | np.ndarray | Iterable[float]) -> np.ndarray:
     """Convert input to a 1D float NumPy array."""
     return np.asarray(x, dtype=float).reshape(-1)
 
 
 def _nan_safe_abs_errors(
-    y: Union[pd.Series, np.ndarray, Iterable[float]],
-    yhat: Union[pd.Series, np.ndarray, Iterable[float]],
+    y: pd.Series | np.ndarray | Iterable[float],
+    yhat: pd.Series | np.ndarray | Iterable[float],
 ) -> np.ndarray:
     r"""
     Compute absolute errors with NaN/inf filtering.
@@ -112,9 +112,9 @@ def _quantile(x: np.ndarray, q: float) -> float:
 
 def _make_tau_grid(
     abs_errors: np.ndarray,
-    grid: Optional[Union[np.ndarray, Iterable[float]]] = None,
+    grid: np.ndarray | Iterable[float] | None = None,
     grid_size: int = 101,
-    grid_quantiles: Tuple[float, float] = (0.0, 0.99),
+    grid_quantiles: tuple[float, float] = (0.0, 0.99),
 ) -> np.ndarray:
     """
     Construct a non-negative τ grid.
@@ -155,8 +155,8 @@ def _make_tau_grid(
 
 
 def hr_at_tau(
-    y: Union[pd.Series, np.ndarray, Iterable[float]],
-    yhat: Union[pd.Series, np.ndarray, Iterable[float]],
+    y: pd.Series | np.ndarray | Iterable[float],
+    yhat: pd.Series | np.ndarray | Iterable[float],
     tau: float,
 ) -> float:
     r"""
@@ -208,24 +208,24 @@ class TauEstimate:
     tau: float
     method: str
     n: int
-    diagnostics: Dict[str, Any]
+    diagnostics: dict[str, Any]
 
 
 def estimate_tau(
-    y: Union[pd.Series, np.ndarray, Iterable[float]],
-    yhat: Union[pd.Series, np.ndarray, Iterable[float]],
+    y: pd.Series | np.ndarray | Iterable[float],
+    yhat: pd.Series | np.ndarray | Iterable[float],
     method: TauMethod = "target_hit_rate",
     *,
     target_hit_rate: float = 0.90,
-    grid: Optional[Union[np.ndarray, Iterable[float]]] = None,
+    grid: np.ndarray | Iterable[float] | None = None,
     grid_size: int = 101,
-    grid_quantiles: Tuple[float, float] = (0.0, 0.99),
+    grid_quantiles: tuple[float, float] = (0.0, 0.99),
     knee_rule: Literal["slope_threshold", "max_distance"] = "slope_threshold",
     slope_threshold: float = 0.0025,
     lambda_: float = 0.10,
-    tau_max: Optional[float] = None,
+    tau_max: float | None = None,
     tau_floor: float = 0.0,
-    tau_cap: Optional[float] = None,
+    tau_cap: float | None = None,
 ) -> TauEstimate:
     r"""Estimate a global tolerance τ from residuals.
 
@@ -248,9 +248,7 @@ def estimate_tau(
 
     if method == "target_hit_rate":
         if not (0.0 < target_hit_rate <= 1.0):
-            raise ValueError(
-                f"target_hit_rate must be in (0, 1]. Got {target_hit_rate}."
-            )
+            raise ValueError(f"target_hit_rate must be in (0, 1]. Got {target_hit_rate}.")
 
         tau = _quantile(abs_errors, target_hit_rate)
 
@@ -296,9 +294,7 @@ def estimate_tau(
             slope = np.where(d_tau > 0, d_hr / d_tau, np.inf)
 
             candidates = np.where(slope < slope_threshold)[0]
-            pick_i = (
-                int(candidates[0] + 1) if candidates.size > 0 else int(len(tau_grid) - 1)
-            )
+            pick_i = int(candidates[0] + 1) if candidates.size > 0 else int(len(tau_grid) - 1)
 
             tau = float(tau_grid[pick_i])
             hr_pick = float(hr_curve[pick_i])
@@ -328,9 +324,7 @@ def estimate_tau(
             if denom == 0:
                 pick_i = int(len(tau_grid) // 2)
             else:
-                dist = (
-                    np.abs((y1 - y0) * x - (x1 - x0) * yv + x1 * y0 - y1 * x0) / denom
-                )
+                dist = np.abs((y1 - y0) * x - (x1 - x0) * yv + x1 * y0 - y1 * x0) / denom
                 pick_i = int(np.argmax(dist))
 
             tau = float(tau_grid[pick_i])
@@ -359,16 +353,11 @@ def estimate_tau(
         if lambda_ < 0:
             raise ValueError(f"lambda_ must be >= 0. Got {lambda_}.")
 
-        if tau_max is None:
-            tau_max_val = _quantile(abs_errors, 0.99)
-        else:
-            tau_max_val = float(tau_max)
+        tau_max_val = _quantile(abs_errors, 0.99) if tau_max is None else float(tau_max)
 
         if not np.isfinite(tau_max_val) or tau_max_val <= 0:
             tau_max_val = (
-                float(tau_grid[-1])
-                if np.isfinite(tau_grid[-1]) and tau_grid[-1] > 0
-                else 1.0
+                float(tau_grid[-1]) if np.isfinite(tau_grid[-1]) and tau_grid[-1] > 0 else 1.0
             )
 
         utility = hr_curve - float(lambda_) * (tau_grid / tau_max_val)
@@ -407,7 +396,7 @@ def estimate_entity_tau(
     yhat_col: str,
     method: TauMethod = "target_hit_rate",
     min_n: int = 30,
-    estimate_kwargs: Optional[Mapping[str, Any]] = None,
+    estimate_kwargs: Mapping[str, Any] | None = None,
     cap_with_global: bool = False,
     global_cap_quantile: float = 0.99,
     include_diagnostics: bool = True,
@@ -496,11 +485,11 @@ def estimate_entity_tau(
 
 
 def hr_auto_tau(
-    y: Union[pd.Series, np.ndarray, Iterable[float]],
-    yhat: Union[pd.Series, np.ndarray, Iterable[float]],
+    y: pd.Series | np.ndarray | Iterable[float],
+    yhat: pd.Series | np.ndarray | Iterable[float],
     method: TauMethod = "target_hit_rate",
     **estimate_kwargs: Any,
-) -> Tuple[float, float, Dict[str, Any]]:
+) -> tuple[float, float, dict[str, Any]]:
     r"""Estimate τ from residuals, then compute HR@τ. Returns (hr, tau, diagnostics)."""
     est = estimate_tau(y=y, yhat=yhat, method=method, **estimate_kwargs)
     if not np.isfinite(est.tau):

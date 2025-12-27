@@ -31,9 +31,7 @@ def test_hr_at_tau_matches_eb_metrics_on_finite_data():
     yhat = np.array([10, 11, 9, 13], dtype=float)
 
     for tau in [0.0, 1.0, 3.0]:
-        assert hr_at_tau(y, yhat, tau=tau) == pytest.approx(
-            core(y_true=y, y_pred=yhat, tau=tau)
-        )
+        assert hr_at_tau(y, yhat, tau=tau) == pytest.approx(core(y_true=y, y_pred=yhat, tau=tau))
 
 
 def test_hr_at_tau_ignores_nans():
@@ -69,9 +67,7 @@ def test_estimate_tau_target_hit_rate_respects_floor_and_cap():
     y = np.array([10, 10, 10, 10], dtype=float)
     yhat = np.array([10, 11, 9, 13], dtype=float)
 
-    est_floor = estimate_tau(
-        y, yhat, method="target_hit_rate", target_hit_rate=0.75, tau_floor=2.0
-    )
+    est_floor = estimate_tau(y, yhat, method="target_hit_rate", target_hit_rate=0.75, tau_floor=2.0)
     assert est_floor.tau == pytest.approx(2.0)
 
     est_cap = estimate_tau(y, yhat, method="target_hit_rate", target_hit_rate=1.0, tau_cap=2.0)

@@ -6,8 +6,8 @@ import pytest
 
 from eb_optimization.tuning.cost_ratio import (
     EntityCostRatioEstimate,
-    estimate_R_cost_balance,
     estimate_entity_R_from_balance,
+    estimate_R_cost_balance,
 )
 
 

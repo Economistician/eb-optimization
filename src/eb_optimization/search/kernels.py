@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Generic discrete-search kernels for eb-optimization.
 
@@ -28,15 +26,16 @@ They serve as reusable building blocks for higher-level tuning logic
 across the Electric Barometer ecosystem.
 """
 
-from typing import Callable, Iterable, Literal, TypeVar
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from typing import Literal, TypeVar
+
 import numpy as np
 
 T = TypeVar("T")
 
-__all__ = [
-    "argmin_over_candidates",
-    "argmax_over_candidates",
-]
+__all__ = ["argmax_over_candidates", "argmin_over_candidates"]
 
 
 def argmin_over_candidates(
@@ -84,12 +83,13 @@ def argmin_over_candidates(
             best_score = score
             continue
 
-        if score == best_score:
-            if tie_break == "last":
-                best_candidate = cand
-            elif tie_break == "closest_to_zero":
-                if abs(float(cand)) < abs(float(best_candidate)):  # type: ignore[arg-type]
-                    best_candidate = cand
+        if score == best_score and (
+            tie_break == "last"
+            or (
+                tie_break == "closest_to_zero" and abs(float(cand)) < abs(float(best_candidate))  # type: ignore[arg-type]
+            )
+        ):
+            best_candidate = cand
 
     if best_candidate is None or best_score is None:
         raise ValueError("candidates must be a non-empty iterable")

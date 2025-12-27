@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Cost-ratio (R = c_u / c_o) policy artifacts for eb-optimization.
 
@@ -38,16 +36,19 @@ Notes
   estimation, `co` is currently modeled as a scalar (consistent with tuning).
 """
 
+from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any
 
 import numpy as np
-import pandas as pd
 from numpy.typing import ArrayLike
+import pandas as pd
 
 from eb_optimization.tuning.cost_ratio import (
-    estimate_R_cost_balance,
     estimate_entity_R_from_balance,
+    estimate_R_cost_balance,
 )
 
 
@@ -95,9 +96,9 @@ def apply_cost_ratio_policy(
     y_pred: ArrayLike,
     *,
     policy: CostRatioPolicy = DEFAULT_COST_RATIO_POLICY,
-    co: Union[float, ArrayLike, None] = None,
+    co: float | ArrayLike | None = None,
     sample_weight: ArrayLike | None = None,
-) -> Tuple[float, Dict[str, Any]]:
+) -> tuple[float, dict[str, Any]]:
     """
     Apply a frozen cost-ratio policy to estimate a global R.
 
@@ -136,7 +137,7 @@ def apply_cost_ratio_policy(
         )
     )
 
-    diag: Dict[str, Any] = {
+    diag: dict[str, Any] = {
         "method": "cost_balance",
         "R_grid": list(map(float, policy.R_grid)),
         "co_is_array": isinstance(co_val, (list, tuple, np.ndarray, pd.Series)),
@@ -153,8 +154,8 @@ def apply_entity_cost_ratio_policy(
     y_true_col: str,
     y_pred_col: str,
     policy: CostRatioPolicy = DEFAULT_COST_RATIO_POLICY,
-    co: Optional[float] = None,
-    sample_weight_col: Optional[str] = None,
+    co: float | None = None,
+    sample_weight_col: str | None = None,
     include_diagnostics: bool = True,
 ) -> pd.DataFrame:
     """
@@ -238,7 +239,17 @@ def apply_entity_cost_ratio_policy(
         tuned["n"] = tuned[entity_col].map(counts).astype(int)
     else:
         tuned = pd.DataFrame(
-            columns=[entity_col, "R", "cu", "co", "under_cost", "over_cost", "diff", "reason", "n"]
+            columns=[
+                entity_col,
+                "R",
+                "cu",
+                "co",
+                "under_cost",
+                "over_cost",
+                "diff",
+                "reason",
+                "n",
+            ],
         )
 
     # ---- build rows for ineligible entities (one row per entity) ----
@@ -260,7 +271,17 @@ def apply_entity_cost_ratio_policy(
         ineligible_rows["n"] = ineligible_rows[entity_col].map(counts).astype(int)
     else:
         ineligible_rows = pd.DataFrame(
-            columns=[entity_col, "R", "cu", "co", "under_cost", "over_cost", "diff", "reason", "n"]
+            columns=[
+                entity_col,
+                "R",
+                "cu",
+                "co",
+                "under_cost",
+                "over_cost",
+                "diff",
+                "reason",
+                "n",
+            ],
         )
 
     # ---- combine (avoid pandas FutureWarning on concat with empty/all-NA frames) ----
@@ -287,8 +308,8 @@ def apply_entity_cost_ratio_policy(
 
 
 __all__ = [
-    "CostRatioPolicy",
     "DEFAULT_COST_RATIO_POLICY",
+    "CostRatioPolicy",
     "apply_cost_ratio_policy",
     "apply_entity_cost_ratio_policy",
 ]

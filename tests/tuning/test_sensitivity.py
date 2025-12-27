@@ -8,7 +8,6 @@ from eb_metrics.metrics.loss import cwsl
 from eb_metrics.metrics.service import cwsl_sensitivity
 from eb_optimization.tuning.sensitivity import compute_cwsl_sensitivity_df
 
-
 # -----------------------------------------------------------------------------
 # Core sensitivity behavior (still owned by eb-metrics, but validated here because
 # this workflow is now "owned" by eb-optimization).
@@ -192,9 +191,7 @@ def test_compute_cwsl_sensitivity_df_handles_group_cols():
             sample_weight=None,
         )
         for r, cwsl_val in core.items():
-            got = float(
-                out.loc[(out["grp"] == grp) & (out["R"] == float(r)), "CWSL"].iloc[0]
-            )
+            got = float(out.loc[(out["grp"] == grp) & (out["R"] == float(r)), "CWSL"].iloc[0])
             assert np.isclose(got, float(cwsl_val))
 
 

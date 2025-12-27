@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Frozen policy artifacts for the Electric Barometer optimization layer.
 
@@ -27,50 +25,32 @@ Exported policies
 - RAL policy governance (readiness adjustment layer)
 """
 
-# ---------------------------------------------------------------------
-# Tau (tolerance) policies
-# ---------------------------------------------------------------------
-from .tau_policy import (
-    TauPolicy,
-    apply_tau_policy,
-    apply_tau_policy_hr,
-    apply_entity_tau_policy,
-)
+from __future__ import annotations
 
-# ---------------------------------------------------------------------
-# Cost-ratio (R) policies
-# ---------------------------------------------------------------------
 from .cost_ratio_policy import (
-    CostRatioPolicy,
     DEFAULT_COST_RATIO_POLICY,
+    CostRatioPolicy,
     apply_cost_ratio_policy,
     apply_entity_cost_ratio_policy,
 )
-
-# ---------------------------------------------------------------------
-# RAL policies
-# ---------------------------------------------------------------------
-from .ral_policy import (
-    RALPolicy,
-    DEFAULT_RAL_POLICY,
-    apply_ral_policy,
+from .ral_policy import DEFAULT_RAL_POLICY, RALPolicy, apply_ral_policy
+from .tau_policy import (
+    TauPolicy,
+    apply_entity_tau_policy,
+    apply_tau_policy,
+    apply_tau_policy_hr,
 )
 
 __all__ = [
-    # Tau policies
-    "TauPolicy",
-    "apply_tau_policy",
-    "apply_tau_policy_hr",
-    "apply_entity_tau_policy",
-
-    # Cost ratio policies
-    "CostRatioPolicy",
     "DEFAULT_COST_RATIO_POLICY",
+    "DEFAULT_RAL_POLICY",
+    "CostRatioPolicy",
+    "RALPolicy",
+    "TauPolicy",
     "apply_cost_ratio_policy",
     "apply_entity_cost_ratio_policy",
-
-    # RAL policies
-    "RALPolicy",
-    "DEFAULT_RAL_POLICY",
+    "apply_entity_tau_policy",
     "apply_ral_policy",
+    "apply_tau_policy",
+    "apply_tau_policy_hr",
 ]
