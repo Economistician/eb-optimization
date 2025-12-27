@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Generic discrete-search kernels for eb-optimization.
 
@@ -27,6 +25,8 @@ They serve as reusable building blocks for higher-level tuning logic
 (``tuning`` modules), enabling consistent and auditable optimization behavior
 across the Electric Barometer ecosystem.
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from typing import Literal, TypeVar

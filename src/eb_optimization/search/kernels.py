@@ -86,7 +86,8 @@ def argmin_over_candidates(
         if score == best_score and (
             tie_break == "last"
             or (
-                tie_break == "closest_to_zero" and abs(float(cand)) < abs(float(best_candidate))  # type: ignore[arg-type]
+                tie_break == "closest_to_zero"
+                and abs(float(cand)) < abs(float(best_candidate))  # type: ignore[arg-type]
             )
         ):
             best_candidate = cand

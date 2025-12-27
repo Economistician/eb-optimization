@@ -53,7 +53,9 @@ def test_floating_point_precision():
 # Test: Edge case where grid has no steps due to rounding
 def test_no_steps_due_to_rounding():
     grid = make_float_grid(0.0001, 0.1, 0.01)  # Changed x_min to 0.0001
-    expected = np.array([0.0001, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1])
+    expected = np.array(
+        [0.0001, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]
+    )
     np.testing.assert_allclose(grid, expected, rtol=1e-4, atol=1e-6)
 
 

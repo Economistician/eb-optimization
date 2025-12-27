@@ -73,7 +73,9 @@ def broadcast_param(x: ArrayLike, shape: tuple[int, ...], name: str) -> np.ndarr
         return np.full(shape, float(arr), dtype=float)
 
     if arr.shape != shape:
-        raise ValueError(f"{name} must be scalar or have shape {shape}; got shape {arr.shape}")
+        raise ValueError(
+            f"{name} must be scalar or have shape {shape}; got shape {arr.shape}"
+        )
 
     return arr
 
@@ -110,7 +112,9 @@ def handle_sample_weight(sample_weight: ArrayLike | None, n: int) -> np.ndarray:
     w = np.asarray(sample_weight, dtype=float)
 
     if w.ndim != 1 or w.shape[0] != n:
-        raise ValueError(f"sample_weight must be a 1D array of length {n}; got shape {w.shape}")
+        raise ValueError(
+            f"sample_weight must be a 1D array of length {n}; got shape {w.shape}"
+        )
 
     if np.any(w < 0):
         raise ValueError("sample_weight must be non-negative.")

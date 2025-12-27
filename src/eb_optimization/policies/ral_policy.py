@@ -102,7 +102,9 @@ class RALPolicy:
 
         if self.is_segmented():
             # Merge uplift_table with the DataFrame based on segment columns
-            uplift_df = df.merge(self.uplift_table, on=list(self.segment_cols), how="left")
+            uplift_df = df.merge(
+                self.uplift_table, on=list(self.segment_cols), how="left"
+            )
 
             # Apply the segment-level uplift (if available) to the forecast.
             # NOTE: `uplift` here is interpreted as a multiplicative factor relative to the

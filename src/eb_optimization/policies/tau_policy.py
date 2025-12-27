@@ -18,7 +18,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from eb_optimization.tuning.tau import TauMethod, estimate_entity_tau, estimate_tau, hr_at_tau
+from eb_optimization.tuning.tau import (
+    TauMethod,
+    estimate_entity_tau,
+    estimate_tau,
+    hr_at_tau,
+)
 
 
 @dataclass(frozen=True)

@@ -50,7 +50,9 @@ def test_tune_ral_policy_global_uplift():
     y_pred = df["forecast"].to_numpy(dtype=float)
 
     original_cwsl = cwsl(y_true, y_pred, cu=cu, co=co)
-    y_pred_adj = policy.adjust_forecast(df, forecast_col="forecast").to_numpy(dtype=float)
+    y_pred_adj = policy.adjust_forecast(df, forecast_col="forecast").to_numpy(
+        dtype=float
+    )
     adjusted_cwsl = cwsl(y_true, y_pred_adj, cu=cu, co=co)
 
     assert adjusted_cwsl <= original_cwsl

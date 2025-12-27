@@ -44,7 +44,9 @@ def test_apply_cost_ratio_policy_uses_policy_defaults_when_co_none():
 
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=2.0)
 
-    R, diag = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=None)
+    R, diag = apply_cost_ratio_policy(
+        y_true=y_true, y_pred=y_pred, policy=policy, co=None
+    )
 
     # Balanced example chooses 2.0 regardless of co scale (costs scale cancels in balance),
     # but we mainly assert diagnostics reflect default usage.
@@ -93,10 +95,14 @@ def _panel_for_entity_tests() -> pd.DataFrame:
     rows: list[dict[str, object]] = []
 
     for _ in range(5):
-        rows.append({"entity": "A", "actual_qty": 10.0, "forecast_qty": 12.0})  # overbuild
+        rows.append(
+            {"entity": "A", "actual_qty": 10.0, "forecast_qty": 12.0}
+        )  # overbuild
 
     for _ in range(6):
-        rows.append({"entity": "B", "actual_qty": 10.0, "forecast_qty": 8.0})  # shortfall
+        rows.append(
+            {"entity": "B", "actual_qty": 10.0, "forecast_qty": 8.0}
+        )  # shortfall
 
     return pd.DataFrame(rows)
 

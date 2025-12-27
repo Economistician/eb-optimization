@@ -83,7 +83,9 @@ def tune_ral_policy(
                 f"{y_true.shape} vs {y_pred.shape}"
             )
         if np.any(weights < 0):
-            raise ValueError(f"For segment {segment_key!r}, sample weights must be non-negative.")
+            raise ValueError(
+                f"For segment {segment_key!r}, sample weights must be non-negative."
+            )
 
         # Calculate shortfall and overbuild
         shortfall = np.maximum(0.0, y_true - y_pred)

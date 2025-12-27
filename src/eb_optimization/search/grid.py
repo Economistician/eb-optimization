@@ -26,7 +26,9 @@ import math
 import numpy as np
 
 
-def make_float_grid(x_min: float, x_max: float, step: float, decimals: int = 10) -> np.ndarray:
+def make_float_grid(
+    x_min: float, x_max: float, step: float, decimals: int = 10
+) -> np.ndarray:
     r"""Create a numerically robust 1D grid over a closed interval.
 
     This utility is used throughout optimization to create bounded, interpretable
