@@ -79,7 +79,9 @@ class CostRatioPolicy:
         if grid.ndim != 1 or grid.size == 0:
             raise ValueError("R_grid must be a non-empty 1D sequence of floats.")
         if not np.any(grid > 0):
-            raise ValueError("R_grid must contain at least one strictly positive value.")
+            raise ValueError(
+                "R_grid must contain at least one strictly positive value."
+            )
 
         if not np.isfinite(self.co) or float(self.co) <= 0:
             raise ValueError(f"co must be finite and strictly positive. Got {self.co}.")
@@ -297,7 +299,11 @@ def apply_entity_cost_ratio_policy(
     diag_cols = ["under_cost", "over_cost", "diff"]
     remaining = [c for c in out.columns if c not in base_cols + diag_cols]
 
-    cols = (base_cols + diag_cols + remaining) if include_diagnostics else (base_cols + remaining)
+    cols = (
+        (base_cols + diag_cols + remaining)
+        if include_diagnostics
+        else (base_cols + remaining)
+    )
 
     # Ensure all expected columns exist (even if empty)
     for c in cols:

@@ -191,7 +191,9 @@ def test_compute_cwsl_sensitivity_df_handles_group_cols():
             sample_weight=None,
         )
         for r, cwsl_val in core.items():
-            got = float(out.loc[(out["grp"] == grp) & (out["R"] == float(r)), "CWSL"].iloc[0])
+            got = float(
+                out.loc[(out["grp"] == grp) & (out["R"] == float(r)), "CWSL"].iloc[0]
+            )
             assert np.isclose(got, float(cwsl_val))
 
 
