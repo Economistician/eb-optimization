@@ -119,9 +119,13 @@ class RALPolicy:
 
             # Solve the reportOperatorIssue by casting to concrete numpy arrays of floats.
             # This satisfies Pyright that the '*' operator is valid.
-            arr_baseline = cast("np.ndarray[Any, np.dtype[np.float64]]", adjusted_forecast.values)
-            arr_multiplier = cast("np.ndarray[Any, np.dtype[np.float64]]", multiplier_ser.values)
-            
+            arr_baseline = cast(
+                "np.ndarray[Any, np.dtype[np.float64]]", adjusted_forecast.values
+            )
+            arr_multiplier = cast(
+                "np.ndarray[Any, np.dtype[np.float64]]", multiplier_ser.values
+            )
+
             result_raw = arr_baseline * arr_multiplier
             return pd.Series(result_raw, index=df.index, name="readiness_forecast")
 
