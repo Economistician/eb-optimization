@@ -103,7 +103,7 @@ def test_compute_cwsl_sensitivity_df_matches_core_function_scalar_co():
         sample_weight_col=None,
     )
 
-    assert list(out["R"].astype(float)) == [float(r) for r in core.keys()]
+    assert list(out["R"].astype(float)) == [float(r) for r in core]
 
     for r, cwsl_val in core.items():
         got = float(out.loc[out["R"] == float(r), "CWSL"].iloc[0])
@@ -149,7 +149,7 @@ def test_compute_cwsl_sensitivity_df_supports_per_row_co_and_weights():
         sample_weight_col="weight",
     )
 
-    assert set(out["R"].astype(float)) == {float(r) for r in core.keys()}
+    assert set(out["R"].astype(float)) == {float(r) for r in core}
 
     for r, cwsl_val in core.items():
         got = float(out.loc[out["R"] == float(r), "CWSL"].iloc[0])
@@ -191,9 +191,7 @@ def test_compute_cwsl_sensitivity_df_handles_group_cols():
             sample_weight=None,
         )
         for r, cwsl_val in core.items():
-            got = float(
-                out.loc[(out["grp"] == grp) & (out["R"] == float(r)), "CWSL"].iloc[0]
-            )
+            got = float(out.loc[(out["grp"] == grp) & (out["R"] == float(r)), "CWSL"].iloc[0])
             assert np.isclose(got, float(cwsl_val))
 
 
