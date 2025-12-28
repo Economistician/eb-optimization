@@ -3,11 +3,11 @@
 ######################################
 [project]
 name = "eb-optimization"
-version = "0.2.2"
+version = "0.2.3"
 description = "Electric Barometer: Optimization and tuning utilities for EB objectives and policy parameters."
 readme = "README.md"
 requires-python = ">=3.10"
-license = "BSD-3-Clause"
+license = { text = "BSD-3-Clause" }
 license-files = ["LICENSE*"]
 
 authors = [
@@ -67,9 +67,7 @@ eb = [
 ]
 
 # Optional optimization backends (future-proofing)
-# Keep empty for now; add later when you actually introduce them.
-opt = [
-]
+opt = []
 
 # CI / test-only dependencies
 test = [
@@ -83,6 +81,12 @@ dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
   "eb-optimization[eb]",
+]
+
+# Combined extra to satisfy the "extras: all" CI contract.
+# Aggregates EB ecosystem dependencies and test tooling.
+all = [
+  "eb-optimization[eb,test,dev]"
 ]
 
 ######################################
