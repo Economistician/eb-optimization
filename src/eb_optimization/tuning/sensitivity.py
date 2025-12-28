@@ -146,9 +146,7 @@ def cwsl_sensitivity(
     if sample_weight is not None:
         w = np.asarray(sample_weight, dtype=float).reshape(-1)
         if w.shape != y_true_arr.shape:
-            raise ValueError(
-                f"sample_weight must have shape {y_true_arr.shape}; got {w.shape}"
-            )
+            raise ValueError(f"sample_weight must have shape {y_true_arr.shape}; got {w.shape}")
         if np.any(w < 0):
             raise ValueError("sample_weight must be non-negative.")
     else:
@@ -162,9 +160,7 @@ def cwsl_sensitivity(
     if isinstance(co, np.ndarray):
         co_arr = np.asarray(co, dtype=float).reshape(-1)
         if co_arr.shape != y_true_arr.shape:
-            raise ValueError(
-                f"co must have shape {y_true_arr.shape}; got {co_arr.shape}"
-            )
+            raise ValueError(f"co must have shape {y_true_arr.shape}; got {co_arr.shape}")
         if np.any(co_arr <= 0):
             raise ValueError("co must be strictly positive.")
         co_val = co_arr
@@ -249,9 +245,7 @@ def compute_cwsl_sensitivity_df(
         co_value = g[co].to_numpy(dtype=float) if isinstance(co, str) else float(co)
 
         sample_weight = (
-            g[sample_weight_col].to_numpy(dtype=float)
-            if sample_weight_col is not None
-            else None
+            g[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
         )
 
         sensitivity_map = cwsl_sensitivity(

@@ -185,9 +185,7 @@ def estimate_tau(
 
     if method == "target_hit_rate":
         if not (0.0 < target_hit_rate <= 1.0):
-            raise ValueError(
-                f"target_hit_rate must be in (0, 1]. Got {target_hit_rate}."
-            )
+            raise ValueError(f"target_hit_rate must be in (0, 1]. Got {target_hit_rate}.")
 
         tau = _quantile(abs_errors, target_hit_rate)
 
@@ -205,9 +203,7 @@ def estimate_tau(
             "tau_floor": float(tau_floor),
             "tau_cap": float(tau_cap) if tau_cap is not None else None,
         }
-        return TauEstimate(
-            tau=float(tau), method="target_hit_rate", n=n, diagnostics=diag
-        )
+        return TauEstimate(tau=float(tau), method="target_hit_rate", n=n, diagnostics=diag)
 
     tau_grid = _make_tau_grid(
         abs_errors,
@@ -234,11 +230,7 @@ def estimate_tau(
             slope = np.where(d_tau > 0, d_hr / d_tau, np.inf)
 
             candidates = np.where(slope < slope_threshold)[0]
-            pick_i = (
-                int(candidates[0] + 1)
-                if candidates.size > 0
-                else int(len(tau_grid) - 1)
-            )
+            pick_i = int(candidates[0] + 1) if candidates.size > 0 else int(len(tau_grid) - 1)
 
             tau = float(tau_grid[pick_i])
             hr_pick = float(hr_curve[pick_i])
@@ -268,9 +260,7 @@ def estimate_tau(
             if denom == 0:
                 pick_i = int(len(tau_grid) // 2)
             else:
-                dist = (
-                    np.abs((y1 - y0) * x - (x1 - x0) * yv + x1 * y0 - y1 * x0) / denom
-                )
+                dist = np.abs((y1 - y0) * x - (x1 - x0) * yv + x1 * y0 - y1 * x0) / denom
                 pick_i = int(np.argmax(dist))
 
             tau = float(tau_grid[pick_i])
@@ -303,9 +293,7 @@ def estimate_tau(
 
         if not np.isfinite(tau_max_val) or tau_max_val <= 0:
             tau_max_val = (
-                float(tau_grid[-1])
-                if np.isfinite(tau_grid[-1]) and tau_grid[-1] > 0
-                else 1.0
+                float(tau_grid[-1]) if np.isfinite(tau_grid[-1]) and tau_grid[-1] > 0 else 1.0
             )
 
         utility = hr_curve - float(lambda_) * (tau_grid / tau_max_val)

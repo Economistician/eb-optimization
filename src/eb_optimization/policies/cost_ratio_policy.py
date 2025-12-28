@@ -52,9 +52,7 @@ class CostRatioPolicy:
         if grid.ndim != 1 or grid.size == 0:
             raise ValueError("R_grid must be a non-empty 1D sequence of floats.")
         if not np.any(grid > 0):
-            raise ValueError(
-                "R_grid must contain at least one strictly positive value."
-            )
+            raise ValueError("R_grid must contain at least one strictly positive value.")
 
         if not np.isfinite(self.co) or float(self.co) <= 0:
             raise ValueError(f"co must be finite and strictly positive. Got {self.co}.")
@@ -129,9 +127,7 @@ def apply_entity_cost_ratio_policy(
     # ---- governance: identify eligible entities ----
     # Resolution for Error 133: Ensure the groupby result is strictly typed as a Series
     # so that the .index access is valid.
-    counts_ser = cast(
-        pd.Series, df.groupby(entity_col, dropna=False, sort=False).size()
-    )
+    counts_ser = cast(pd.Series, df.groupby(entity_col, dropna=False, sort=False).size())
 
     # Filtering creates a slice; we cast the result of that slice to Series to access .index
     eligible_counts = cast(pd.Series, counts_ser[counts_ser >= policy.min_n])
@@ -166,9 +162,7 @@ def apply_entity_cost_ratio_policy(
 
     # ---- build rows for ineligible entities ----
     if not ineligible_df.empty:
-        ineligible_rows = cast(
-            pd.DataFrame, ineligible_df[[entity_col]]
-        ).drop_duplicates()
+        ineligible_rows = cast(pd.DataFrame, ineligible_df[[entity_col]]).drop_duplicates()
         ineligible_rows = ineligible_rows.assign(
             R=np.nan,
             cu=np.nan,
@@ -179,9 +173,7 @@ def apply_entity_cost_ratio_policy(
             reason=f"min_n_not_met(<{policy.min_n})",
         )
         mapper_ineligible: Any = counts_ser
-        ineligible_rows["n"] = (
-            ineligible_rows[entity_col].map(mapper_ineligible).astype(int)
-        )
+        ineligible_rows["n"] = ineligible_rows[entity_col].map(mapper_ineligible).astype(int)
         results_list.append(ineligible_rows)
 
     # ---- combine and organize ----
@@ -207,9 +199,7 @@ def apply_entity_cost_ratio_policy(
 
     remaining = [str(c) for c in out.columns if c not in base_cols + diag_cols]
     target_cols = (
-        (base_cols + diag_cols + remaining)
-        if include_diagnostics
-        else (base_cols + remaining)
+        (base_cols + diag_cols + remaining) if include_diagnostics else (base_cols + remaining)
     )
 
     # Resolution for Error 187: Use pd.Index for the column slice to satisfy strict typing
