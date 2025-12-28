@@ -10,37 +10,13 @@ Layering & responsibilities
     Calibration logic (estimating R from residuals / cost balance).
 - `policies/cost_ratio_policy.py`:
     Frozen configuration + deterministic application wrappers.
-
-The policy layer exists so downstream consumers can:
-- pin method + governance settings in a versioned, auditable object
-- apply the same selection logic consistently across environments
-- avoid re-encoding configuration details in orchestration code
-
-Design intent
--------------
-Policies should be:
-- stable: schema changes are deliberate and versioned
-- deterministic: same inputs + same policy -> same outputs
-- safe: validated governance parameters + clear failure semantics
-
-This module provides:
-- `CostRatioPolicy`: frozen configuration
-- `DEFAULT_COST_RATIO_POLICY`: exported default policy
-- `apply_cost_ratio_policy`: estimate global R from arrays/Series
-- `apply_entity_cost_ratio_policy`: estimate per-entity R from a DataFrame
-
-Notes
------
-- This policy does *not* compute CWSL. It only governs parameter selection.
-- `co` may be scalar or per-interval array for global estimation; for entity-level
-  estimation, `co` is currently modeled as a scalar (consistent with tuning).
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -61,13 +37,10 @@ class CostRatioPolicy:
     ----------
     R_grid : Sequence[float]
         Candidate ratios to search. Only strictly positive values are considered.
-        Order matters for tie-breaking (first-minimizer behavior).
     co : float
-        Default overbuild cost coefficient used for entity-level estimation
-        (and as a default for global estimation if `co` is not passed at call time).
+        Default overbuild cost coefficient used for entity-level estimation.
     min_n : int
         Minimum number of observations required to estimate an entity-level R.
-        Entities with fewer observations are returned with NaN R (and diagnostics).
     """
 
     R_grid: Sequence[float] = (0.5, 1.0, 2.0, 3.0)
@@ -101,29 +74,6 @@ def apply_cost_ratio_policy(
 ) -> tuple[float, dict[str, Any]]:
     """
     Apply a frozen cost-ratio policy to estimate a global R.
-
-    Parameters
-    ----------
-    y_true, y_pred
-        Realized and forecast demand vectors (non-negative, same shape).
-    policy
-        Frozen configuration controlling the candidate grid and defaults.
-    co
-        Overbuild cost coefficient. If None, uses `policy.co`.
-        Can be scalar or per-interval array (passed through to tuning).
-    sample_weight
-        Optional non-negative per-interval weights.
-
-    Returns
-    -------
-    (R, diagnostics)
-        R is a float.
-        Diagnostics include the chosen R, co summary, and candidate grid.
-
-    Notes
-    -----
-    The underlying selection rule is in `tuning.estimate_R_cost_balance`:
-    choose R that minimizes |under_cost(R) - over_cost|.
     """
     co_val = policy.co if co is None else co
 
@@ -140,7 +90,7 @@ def apply_cost_ratio_policy(
     diag: dict[str, Any] = {
         "method": "cost_balance",
         "R_grid": list(map(float, policy.R_grid)),
-        "co_is_array": isinstance(co_val, list | tuple | np.ndarray | pd.Series),
+        "co_is_array": isinstance(co_val, (list, tuple, np.ndarray, pd.Series)),
         "co_default_used": co is None,
         "R": R,
     }
@@ -160,47 +110,6 @@ def apply_entity_cost_ratio_policy(
 ) -> pd.DataFrame:
     """
     Apply a frozen cost-ratio policy per entity.
-
-    This wraps `tuning.estimate_entity_R_from_balance` but adds policy governance:
-    - enforces a minimum sample size per entity (min_n)
-    - pins the candidate ratio grid (R_grid)
-    - provides stable, auditable defaults for co and configuration
-
-    Parameters
-    ----------
-    df
-        Input data containing entity ids, actuals, forecasts, and optionally weights.
-    entity_col
-        Column name identifying the entity to calibrate (e.g., restaurant_id).
-    y_true_col, y_pred_col
-        Column names for realized demand and forecast.
-    policy
-        Frozen configuration controlling ratios grid and governance.
-    co
-        Scalar overbuild cost coefficient. If None, uses `policy.co`.
-    sample_weight_col
-        Optional column name containing non-negative sample weights.
-    include_diagnostics
-        If True, returns diagnostics columns (under_cost, over_cost, diff) produced
-        by tuning. If False, trims to [entity_col, R, cu, co] plus governance columns.
-
-    Returns
-    -------
-    pandas.DataFrame
-        One row per entity with chosen R and supporting diagnostics. Entities
-        with fewer than `policy.min_n` observations will be returned with NaN R.
-
-    Raises
-    ------
-    KeyError
-        If required columns are missing.
-    ValueError
-        If invalid governance values or negative weights are present.
-
-    Notes
-    -----
-    The tuning implementation currently treats `co` as a scalar for entity-level
-    estimation (consistent with the function signature in tuning).
     """
     # ---- validation: columns ----
     if entity_col not in df.columns:
@@ -216,7 +125,7 @@ def apply_entity_cost_ratio_policy(
     if not np.isfinite(co_val) or co_val <= 0:
         raise ValueError(f"co must be finite and strictly positive. Got {co_val}.")
 
-    # ---- governance: min_n (simple deterministic rule: row count per entity) ----
+    # ---- governance: min_n ----
     counts = df.groupby(entity_col, dropna=False, sort=False).size()
     eligible_entities = counts[counts >= policy.min_n].index
     ineligible_entities = counts[counts < policy.min_n].index
@@ -240,19 +149,12 @@ def apply_entity_cost_ratio_policy(
     else:
         tuned = pd.DataFrame(
             columns=[
-                entity_col,
-                "R",
-                "cu",
-                "co",
-                "under_cost",
-                "over_cost",
-                "diff",
-                "reason",
-                "n",
-            ],
+                entity_col, "R", "cu", "co", "under_cost",
+                "over_cost", "diff", "reason", "n"
+            ]
         )
 
-    # ---- build rows for ineligible entities (one row per entity) ----
+    # ---- build rows for ineligible entities ----
     if not ineligible.empty:
         ineligible_rows = (
             ineligible[[entity_col]]
@@ -272,19 +174,12 @@ def apply_entity_cost_ratio_policy(
     else:
         ineligible_rows = pd.DataFrame(
             columns=[
-                entity_col,
-                "R",
-                "cu",
-                "co",
-                "under_cost",
-                "over_cost",
-                "diff",
-                "reason",
-                "n",
-            ],
+                entity_col, "R", "cu", "co", "under_cost",
+                "over_cost", "diff", "reason", "n"
+            ]
         )
 
-    # ---- combine (avoid pandas FutureWarning on concat with empty/all-NA frames) ----
+    # ---- combine ----
     if ineligible_rows.empty:
         out = tuned
     elif tuned.empty:
@@ -295,16 +190,17 @@ def apply_entity_cost_ratio_policy(
     # ---- stable column ordering ----
     base_cols = [entity_col, "R", "cu", "co", "n", "reason"]
     diag_cols = ["under_cost", "over_cost", "diff"]
-    remaining = [c for c in out.columns if c not in base_cols + diag_cols]
+    remaining = [str(c) for c in out.columns if c not in base_cols + diag_cols]
 
-    cols = (base_cols + diag_cols + remaining) if include_diagnostics else (base_cols + remaining)
+    target_cols = (base_cols + diag_cols + remaining) if include_diagnostics else (base_cols + remaining)
 
-    # Ensure all expected columns exist (even if empty)
-    for c in cols:
+    # Ensure all expected columns exist (even if empty) to avoid slicing errors
+    for c in target_cols:
         if c not in out.columns:
             out[c] = np.nan
 
-    return out[cols]
+    # Cast to DataFrame to satisfy Pyright return type
+    return cast(pd.DataFrame, out[target_cols])
 
 
 __all__ = [

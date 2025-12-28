@@ -30,7 +30,7 @@ This module therefore contains:
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -156,13 +156,14 @@ def cwsl_sensitivity(
     R_arr = _normalize_R_list(R_list)
 
     # validate co
+    co_val: float | np.ndarray
     if isinstance(co, np.ndarray):
         co_arr = np.asarray(co, dtype=float).reshape(-1)
         if co_arr.shape != y_true_arr.shape:
             raise ValueError(f"co must have shape {y_true_arr.shape}; got {co_arr.shape}")
         if np.any(co_arr <= 0):
             raise ValueError("co must be strictly positive.")
-        co_val: float | np.ndarray = co_arr
+        co_val = co_arr
     else:
         co_float = float(co)
         if co_float <= 0:
@@ -173,6 +174,7 @@ def cwsl_sensitivity(
 
     for R in R_arr:
         # cu = R * co (supports scalar or per-interval array)
+        # Type ignored for scalar * array broadcast which is valid but difficult for Pyright
         cu_val = float(R) * co_val  # type: ignore[operator]
 
         value = cwsl(
@@ -184,7 +186,6 @@ def cwsl_sensitivity(
         )
         results[float(R)] = float(value)
 
-    # R_arr is guaranteed non-empty; results should be non-empty
     return results
 
 
@@ -200,50 +201,6 @@ def compute_cwsl_sensitivity_df(
 ) -> pd.DataFrame:
     r"""
     Compute CWSL sensitivity curves from a DataFrame.
-
-    Evaluates CWSL over a grid of cost ratios:
-
-    $$ R = \frac{c_u}{c_o} $$
-
-    For each ratio value $R$ in ``R_list``, the implied underbuild cost is:
-
-    $$ c_u = R \cdot c_o $$
-
-    where ``co`` may be a scalar (global) or a per-row column name.
-
-    Parameters
-    ----------
-    df
-        Input data containing actuals, forecasts, optional groups, and optional weights.
-    actual_col
-        Column containing realized demand values.
-    forecast_col
-        Column containing forecast values.
-    R_list
-        Candidate ratios to evaluate. Non-finite and non-positive values are ignored.
-    co
-        Overbuild cost specification:
-        - If ``float``: constant $c_o$ applied to all rows and groups.
-        - If ``str``: name of a column in ``df`` containing per-row $c_o(i)$ values.
-    group_cols
-        Optional grouping columns. If ``None`` or empty, the entire DataFrame is treated
-        as a single group.
-    sample_weight_col
-        Optional column name containing non-negative sample weights per row.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Long-form table of sensitivity results with columns:
-        - if not grouped: ``["R", "CWSL"]``
-        - if grouped: ``group_cols + ["R", "CWSL"]``
-
-    Raises
-    ------
-    KeyError
-        If required columns are missing from ``df``.
-    ValueError
-        If no valid ratios remain after filtering, or if sample weights are negative.
     """
     gcols = [] if group_cols is None else list(group_cols)
 
@@ -260,7 +217,7 @@ def compute_cwsl_sensitivity_df(
     if missing:
         raise KeyError(f"Missing required columns in df: {missing}")
 
-    # ---- validation: R grid (for early failure and stable ordering) ----
+    # ---- validation: R grid ----
     R_arr = _normalize_R_list(R_list)
 
     # ---- validation: weights ----
@@ -273,7 +230,7 @@ def compute_cwsl_sensitivity_df(
     results: list[dict[str, Any]] = []
 
     if len(gcols) == 0:
-        iter_groups = [((None,), df)]
+        iter_groups: Iterable[Any] = [((None,), df)]
     else:
         iter_groups = df.groupby(gcols, dropna=False, sort=False)
 
@@ -306,5 +263,9 @@ def compute_cwsl_sensitivity_df(
             results.append(row)
 
     result_df = pd.DataFrame(results)
-    result_df = result_df[[*gcols, "R", "CWSL"]] if len(gcols) > 0 else result_df[["R", "CWSL"]]
-    return result_df
+    
+    # Cast return to pd.DataFrame to satisfy return type check
+    if len(gcols) > 0:
+        return cast(pd.DataFrame, result_df[[*gcols, "R", "CWSL"]])
+    
+    return cast(pd.DataFrame, result_df[["R", "CWSL"]])

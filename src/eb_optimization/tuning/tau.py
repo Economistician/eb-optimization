@@ -19,40 +19,13 @@ Design notes
 - The module supports global τ estimation and entity-level τ estimation.
 - Optional governance controls allow capping entity τ values by a global cap to prevent
   tolerance inflation.
-
-Methods
--------
-The global estimator supports three selection modes:
-
-1. ``"target_hit_rate"``:
-   choose τ such that a target fraction of residual magnitudes is covered:
-
-   $$
-   \tau = Q_h\left(|e|\right), \quad e_i = y_i-\hat{y}_i
-   $$
-
-   where $Q_h(\cdot)$ is the quantile function at level $h$.
-
-2. ``"knee"``:
-   select τ at a diminishing-returns point on the monotone curve $\mathrm{HR}@\tau$.
-
-3. ``"utility"``:
-   maximize a simple tradeoff between coverage and tolerance width:
-
-   $$
-   \tau^\* = \arg\max_{\tau \in \mathcal{T}}
-   \left[\mathrm{HR}@\tau - \lambda\left(\frac{\tau}{\tau_{\max}}\right)\right]
-   $$
-
-The entity-level estimator runs the same procedure per entity, optionally capping each
-entity τ by a global cap derived from the full residual distribution.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -73,14 +46,6 @@ def _nan_safe_abs_errors(
 ) -> np.ndarray:
     r"""
     Compute absolute errors with NaN/inf filtering.
-
-    Non-finite (y, yhat) pairs are dropped. The returned array contains:
-
-    $$
-    |e_i| = |y_i - \hat{y}_i|
-    $$
-
-    for finite pairs only.
     """
     y_arr = _to_1d_float_array(y)
     yhat_arr = _to_1d_float_array(yhat)
@@ -118,10 +83,6 @@ def _make_tau_grid(
 ) -> np.ndarray:
     """
     Construct a non-negative τ grid.
-
-    If ``grid`` is provided, it is filtered to finite, unique, non-negative values.
-    Otherwise, a linear grid is constructed between quantiles of the absolute error
-    distribution.
     """
     if abs_errors.size == 0:
         return np.array([], dtype=float)
@@ -161,16 +122,6 @@ def hr_at_tau(
 ) -> float:
     r"""
     Compute HR@τ: fraction of observations whose absolute error is within τ.
-
-    HR@τ is defined as:
-
-    $$
-    \mathrm{HR}@\tau = \frac{1}{n}\sum_{i=1}^{n}\mathbf{1}\left(|y_i-\hat{y}_i|\le \tau\right)
-    $$
-
-    This is an evaluation-friendly wrapper around the core implementation in
-    ``eb_metrics.metrics.service.hr_at_tau``. Non-finite (y, yhat) pairs are dropped
-    prior to delegating. If no finite pairs remain, returns ``np.nan``.
     """
     tau = _validate_tau(tau)
 
@@ -192,19 +143,7 @@ def hr_at_tau(
 class TauEstimate:
     """
     Result container for τ estimation.
-
-    Attributes
-    ----------
-    tau : float
-        Estimated tolerance τ (may be NaN if estimation failed).
-    method : str
-        Method identifier used to produce the estimate.
-    n : int
-        Number of finite (y, yhat) pairs used.
-    diagnostics : dict[str, Any]
-        Method-specific diagnostics intended for reporting and governance.
     """
-
     tau: float
     method: str
     n: int
@@ -227,10 +166,7 @@ def estimate_tau(
     tau_floor: float = 0.0,
     tau_cap: float | None = None,
 ) -> TauEstimate:
-    r"""Estimate a global tolerance τ from residuals.
-
-    See module docstring for method definitions and design notes.
-    """
+    r"""Estimate a global tolerance τ from residuals."""
     abs_errors = _nan_safe_abs_errors(y, yhat)
     n = int(abs_errors.size)
 
@@ -282,7 +218,6 @@ def estimate_tau(
             diagnostics={"reason": "empty_tau_grid"},
         )
 
-    # HR curve on grid (monotone non-decreasing)
     e_sorted = np.sort(abs_errors)
     idx = np.searchsorted(e_sorted, tau_grid, side="right")
     hr_curve = idx / float(n)
@@ -401,7 +336,7 @@ def estimate_entity_tau(
     global_cap_quantile: float = 0.99,
     include_diagnostics: bool = True,
 ) -> pd.DataFrame:
-    r"""Estimate τ per entity from residuals. See the original EB docs for details."""
+    r"""Estimate τ per entity from residuals."""
     if estimate_kwargs is None:
         estimate_kwargs = {}
 
@@ -422,7 +357,9 @@ def estimate_entity_tau(
 
     rows: list[dict[str, Any]] = []
 
-    for ent, g in df.groupby(entity_col, dropna=False):
+    # Iterate over groups with explicit type cast for group dataframe
+    for ent, group_obj in df.groupby(entity_col, dropna=False):
+        g = cast(pd.DataFrame, group_obj)
         abs_errors = _nan_safe_abs_errors(g[y_col], g[yhat_col])
         n = int(abs_errors.size)
 
@@ -481,7 +418,9 @@ def estimate_entity_tau(
 
     base_cols = [entity_col, "tau", "n", "method"]
     extra_cols = [c for c in out.columns if c not in base_cols]
-    return out[base_cols + extra_cols]
+    
+    # Cast return type to DataFrame to resolve Pyright ambiguity
+    return cast(pd.DataFrame, out[base_cols + extra_cols])
 
 
 def hr_auto_tau(
