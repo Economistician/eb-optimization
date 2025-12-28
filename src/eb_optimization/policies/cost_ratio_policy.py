@@ -90,7 +90,7 @@ def apply_cost_ratio_policy(
     diag: dict[str, Any] = {
         "method": "cost_balance",
         "R_grid": list(map(float, policy.R_grid)),
-        "co_is_array": isinstance(co_val, (list, tuple, np.ndarray, pd.Series)),
+        "co_is_array": isinstance(co_val, list | tuple | np.ndarray | pd.Series),
         "co_default_used": co is None,
         "R": R,
     }
@@ -148,10 +148,7 @@ def apply_entity_cost_ratio_policy(
         tuned["n"] = tuned[entity_col].map(counts).astype(int)
     else:
         tuned = pd.DataFrame(
-            columns=[
-                entity_col, "R", "cu", "co", "under_cost",
-                "over_cost", "diff", "reason", "n"
-            ]
+            columns=[entity_col, "R", "cu", "co", "under_cost", "over_cost", "diff", "reason", "n"]
         )
 
     # ---- build rows for ineligible entities ----
@@ -173,10 +170,7 @@ def apply_entity_cost_ratio_policy(
         ineligible_rows["n"] = ineligible_rows[entity_col].map(counts).astype(int)
     else:
         ineligible_rows = pd.DataFrame(
-            columns=[
-                entity_col, "R", "cu", "co", "under_cost",
-                "over_cost", "diff", "reason", "n"
-            ]
+            columns=[entity_col, "R", "cu", "co", "under_cost", "over_cost", "diff", "reason", "n"]
         )
 
     # ---- combine ----
@@ -192,7 +186,9 @@ def apply_entity_cost_ratio_policy(
     diag_cols = ["under_cost", "over_cost", "diff"]
     remaining = [str(c) for c in out.columns if c not in base_cols + diag_cols]
 
-    target_cols = (base_cols + diag_cols + remaining) if include_diagnostics else (base_cols + remaining)
+    target_cols = (
+        (base_cols + diag_cols + remaining) if include_diagnostics else (base_cols + remaining)
+    )
 
     # Ensure all expected columns exist (even if empty) to avoid slicing errors
     for c in target_cols:

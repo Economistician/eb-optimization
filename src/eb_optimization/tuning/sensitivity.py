@@ -104,7 +104,7 @@ def cwsl_sensitivity(
 
     holding ``co`` fixed and setting:
 
-    $$ c_u = R \cdot c_o $$
+    $$ c_u = R \cdot co $$
 
     Parameters
     ----------
@@ -263,9 +263,9 @@ def compute_cwsl_sensitivity_df(
             results.append(row)
 
     result_df = pd.DataFrame(results)
-    
+
     # Cast return to pd.DataFrame to satisfy return type check
     if len(gcols) > 0:
         return cast(pd.DataFrame, result_df[[*gcols, "R", "CWSL"]])
-    
+
     return cast(pd.DataFrame, result_df[["R", "CWSL"]])

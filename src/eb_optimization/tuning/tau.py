@@ -144,6 +144,7 @@ class TauEstimate:
     """
     Result container for τ estimation.
     """
+
     tau: float
     method: str
     n: int
@@ -195,9 +196,9 @@ def estimate_tau(
 
         diag = {
             "target_hit_rate": float(target_hit_rate),
-            "achieved_hr_calibration": float(np.mean(abs_errors <= tau))
-            if np.isfinite(tau)
-            else np.nan,
+            "achieved_hr_calibration": (
+                float(np.mean(abs_errors <= tau)) if np.isfinite(tau) else np.nan
+            ),
             "abs_error_quantile_used": float(target_hit_rate),
             "tau_floor": float(tau_floor),
             "tau_cap": float(tau_cap) if tau_cap is not None else None,
@@ -418,7 +419,7 @@ def estimate_entity_tau(
 
     base_cols = [entity_col, "tau", "n", "method"]
     extra_cols = [c for c in out.columns if c not in base_cols]
-    
+
     # Cast return type to DataFrame to resolve Pyright ambiguity
     return cast(pd.DataFrame, out[base_cols + extra_cols])
 
