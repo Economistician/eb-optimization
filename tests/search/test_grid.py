@@ -27,19 +27,19 @@ def test_small_step_size():
 
 # Test: Invalid step size (should raise ValueError)
 def test_invalid_step_size():
-    with pytest.raises(ValueError, match="step must be strictly positive."):
+    with pytest.raises(ValueError, match=r"step must be strictly positive."):
         make_float_grid(1.0, 5.0, 0.0)
 
 
 # Test: Invalid x_min (should raise ValueError)
 def test_invalid_x_min():
-    with pytest.raises(ValueError, match="x_min must be strictly positive."):
+    with pytest.raises(ValueError, match=r"x_min must be strictly positive."):
         make_float_grid(0.0, 5.0, 1.0)
 
 
 # Test: Invalid x_max (should raise ValueError)
 def test_invalid_x_max():
-    with pytest.raises(ValueError, match="x_max must be >= x_min."):
+    with pytest.raises(ValueError, match=r"x_max must be >= x_min."):
         make_float_grid(5.0, 1.0, 1.0)
 
 
@@ -53,13 +53,12 @@ def test_floating_point_precision():
 # Test: Edge case where grid has no steps due to rounding
 def test_no_steps_due_to_rounding():
     grid = make_float_grid(0.0001, 0.1, 0.01)  # Changed x_min to 0.0001
-    expected = np.array(
-        [0.0001, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]
-    )
+    expected = np.array([0.0001, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1])
     np.testing.assert_allclose(grid, expected, rtol=1e-4, atol=1e-6)
 
 
-# Test: Ensure the grid is de-duplicated and includes no near-identical values due to rounding errors
+# Test: Ensure the grid is de-duplicated and includes no near-identical values
+# due to rounding errors
 def test_de_duplication_due_to_rounding():
     grid = make_float_grid(0.0001, 1.0, 0.333333333333)  # Changed x_min to 0.0001
     expected = np.array([0.0001, 0.3333333333, 0.6666666667, 1.0])

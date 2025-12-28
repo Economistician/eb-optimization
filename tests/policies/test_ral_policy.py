@@ -9,9 +9,7 @@ from eb_optimization.policies.ral_policy import RALPolicy
 def test_initialization_with_segmented_policy():
     # Sample segment data
     uplift_table = pd.DataFrame({"segment": ["A", "B"], "uplift": [1.1, 1.2]})
-    policy = RALPolicy(
-        global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table
-    )
+    policy = RALPolicy(global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table)
 
     # Validate global uplift and segment columns
     assert policy.global_uplift == 1.05, "Global uplift value mismatch"
@@ -34,9 +32,7 @@ def test_initialization_with_global_only_policy():
 # Test: is_segmented method returns True when there are segment-level uplifts
 def test_is_segmented_with_segmented_policy():
     uplift_table = pd.DataFrame({"segment": ["A", "B"], "uplift": [1.1, 1.2]})
-    policy = RALPolicy(
-        global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table
-    )
+    policy = RALPolicy(global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table)
 
     assert policy.is_segmented() is True, "Policy should be segmented"
 
@@ -51,9 +47,7 @@ def test_is_segmented_with_global_only_policy():
 # Test: is_segmented method returns False when the uplift_table is empty
 def test_is_segmented_with_empty_uplift_table():
     uplift_table = pd.DataFrame(columns=["segment", "uplift"])
-    policy = RALPolicy(
-        global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table
-    )
+    policy = RALPolicy(global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table)
 
     assert policy.is_segmented() is False, (
         "Policy should not be segmented when uplift_table is empty"
@@ -63,9 +57,7 @@ def test_is_segmented_with_empty_uplift_table():
 # Test: Ensure that RALPolicy is serializable (can be pickled)
 def test_serialization_of_ral_policy():
     uplift_table = pd.DataFrame({"segment": ["A", "B"], "uplift": [1.1, 1.2]})
-    policy = RALPolicy(
-        global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table
-    )
+    policy = RALPolicy(global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table)
 
     # Serialize the policy to a byte stream
     serialized_policy = pickle.dumps(policy)

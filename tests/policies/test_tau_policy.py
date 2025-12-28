@@ -61,9 +61,7 @@ def make_policy(
     ek = {} if estimate_kwargs is None else dict(estimate_kwargs)
 
     # Where do method-specific knobs live?
-    ek_field = _first_present(
-        ("estimate_kwargs", "estimate_params", "kwargs"), init_params
-    )
+    ek_field = _first_present(("estimate_kwargs", "estimate_params", "kwargs"), init_params)
     if ek_field is not None:
         payload[ek_field] = ek
     else:
@@ -184,9 +182,7 @@ def test_apply_tau_policy_hr_returns_hr_and_tau():
         estimate_kwargs={"target_hit_rate": 0.90, "tau_floor": 0.0},
     )
 
-    hr, tau, diag = _unpack_hr_result(
-        apply_tau_policy_hr(y=y, yhat=yhat, policy=policy)
-    )
+    hr, tau, diag = _unpack_hr_result(apply_tau_policy_hr(y=y, yhat=yhat, policy=policy))
 
     assert np.isfinite(hr)
     assert np.isfinite(tau)
@@ -202,9 +198,7 @@ def test_apply_tau_policy_handles_non_finite_pairs():
     y = np.array([np.nan, np.inf, -np.inf])
     yhat = np.array([1.0, 2.0, 3.0])
 
-    policy = make_policy(
-        method="target_hit_rate", estimate_kwargs={"target_hit_rate": 0.90}
-    )
+    policy = make_policy(method="target_hit_rate", estimate_kwargs={"target_hit_rate": 0.90})
 
     tau, diag = _unpack_tau_result(apply_tau_policy(y=y, yhat=yhat, policy=policy))
 
@@ -296,8 +290,6 @@ def test_default_tau_policy_smoke():
     y = np.array([10.0, 12.0, 8.0, 9.0])
     yhat = np.array([9.0, 11.0, 8.0, 10.0])
 
-    tau, diag = _unpack_tau_result(
-        apply_tau_policy(y=y, yhat=yhat, policy=DEFAULT_TAU_POLICY)
-    )
+    tau, diag = _unpack_tau_result(apply_tau_policy(y=y, yhat=yhat, policy=DEFAULT_TAU_POLICY))
     assert np.isfinite(tau) or np.isnan(tau)
     assert isinstance(diag, dict)

@@ -376,12 +376,8 @@ def test_estimate_entity_R_return_result_matches_legacy_R():
     art_table = art.table.set_index("entity")
 
     for ent in ["A", "B"]:
-        assert np.isclose(
-            float(legacy.loc[ent, "R"]), float(art_table.loc[ent, "R_star"])
-        )
-        assert np.isclose(
-            float(legacy.loc[ent, "diff"]), float(art_table.loc[ent, "gap"])
-        )
+        assert np.isclose(float(legacy.loc[ent, "R"]), float(art_table.loc[ent, "R_star"]))
+        assert np.isclose(float(legacy.loc[ent, "diff"]), float(art_table.loc[ent, "gap"]))
 
 
 def test_estimate_entity_R_artifact_degenerate_entity_has_zero_curve_and_min_gap():
@@ -478,9 +474,5 @@ def test_estimate_entity_R_selection_kernel_matches_curve_selection():
     t_kernel = res_kernel.table.set_index("entity")
 
     for ent in ["A", "B"]:
-        assert np.isclose(
-            float(t_curve.loc[ent, "R_star"]), float(t_kernel.loc[ent, "R_star"])
-        )
-        assert np.isclose(
-            float(t_curve.loc[ent, "gap"]), float(t_kernel.loc[ent, "gap"])
-        )
+        assert np.isclose(float(t_curve.loc[ent, "R_star"]), float(t_kernel.loc[ent, "R_star"]))
+        assert np.isclose(float(t_curve.loc[ent, "gap"]), float(t_kernel.loc[ent, "gap"]))

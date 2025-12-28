@@ -369,9 +369,7 @@ def estimate_R_cost_balance(
         {
             "R": positive_R.astype(float),
             "under_cost": np.asarray(under_list, dtype=float),
-            "over_cost": np.full(
-                shape=positive_R.shape, fill_value=over_cost_const, dtype=float
-            ),
+            "over_cost": np.full(shape=positive_R.shape, fill_value=over_cost_const, dtype=float),
             "gap": np.asarray(gap_list, dtype=float),
         }
     )
@@ -537,13 +535,9 @@ def estimate_entity_R_from_balance(
                 f"{y_true.shape} vs {y_pred.shape}"
             )
         if np.any(y_true < 0) or np.any(y_pred < 0):
-            raise ValueError(
-                f"For entity {entity_id!r}, y_true and y_pred must be non-negative."
-            )
+            raise ValueError(f"For entity {entity_id!r}, y_true and y_pred must be non-negative.")
         if np.any(w < 0):
-            raise ValueError(
-                f"For entity {entity_id!r}, sample weights must be non-negative."
-            )
+            raise ValueError(f"For entity {entity_id!r}, sample weights must be non-negative.")
 
         shortfall = np.maximum(0.0, y_true - y_pred)
         overbuild = np.maximum(0.0, y_pred - y_true)

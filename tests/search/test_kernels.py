@@ -86,13 +86,14 @@ def argmin_over_candidates(
             best_score = score
             continue
 
-        if score == best_score:
-            if tie_break == "last":
-                best_candidate = cand
-            elif tie_break == "closest_to_zero" and abs(float(cand)) < abs(
-                float(best_candidate)
-            ):  # type: ignore[arg-type]
-                best_candidate = cand
+        if score == best_score and (
+            tie_break == "last"
+            or (
+                tie_break == "closest_to_zero"
+                and abs(float(cand)) < abs(float(best_candidate))  # type: ignore[arg-type]
+            )
+        ):
+            best_candidate = cand
 
     if best_candidate is None or best_score is None:
         raise ValueError("candidates must be a non-empty iterable")
@@ -126,13 +127,14 @@ def argmax_over_candidates(
             best_score = score
             continue
 
-        if score == best_score:
-            if tie_break == "last":
-                best_candidate = cand
-            elif tie_break == "closest_to_zero" and abs(float(cand)) < abs(
-                float(best_candidate)
-            ):  # type: ignore[arg-type]
-                best_candidate = cand
+        if score == best_score and (
+            tie_break == "last"
+            or (
+                tie_break == "closest_to_zero"
+                and abs(float(cand)) < abs(float(best_candidate))  # type: ignore[arg-type]
+            )
+        ):
+            best_candidate = cand
 
     if best_candidate is None or best_score is None:
         raise ValueError("candidates must be a non-empty iterable")
