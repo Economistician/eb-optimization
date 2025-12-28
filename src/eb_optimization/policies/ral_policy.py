@@ -22,7 +22,9 @@ optimization, not the optimization process itself.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, cast
 
+import numpy as np
 import pandas as pd
 
 
@@ -98,43 +100,41 @@ class RALPolicy:
         pd.Series
             A series with the adjusted forecast values.
         """
-        adjusted_forecast = df[forecast_col] * float(self.global_uplift)
+        # Ensure we treat the slice as a Series for arithmetic
+        baseline = cast(pd.Series, df[forecast_col])
+        adjusted_forecast = cast(pd.Series, baseline * float(self.global_uplift))
 
         if self.is_segmented():
-            # Merge uplift_table with the DataFrame based on segment columns
-            uplift_df = df.merge(self.uplift_table, on=list(self.segment_cols), how="left")
+            # Explicitly cast to DataFrame to resolve Pyright's None-safety check
+            table = cast(pd.DataFrame, self.uplift_table)
 
-            # Apply the segment-level uplift (if available) to the forecast.
-            # NOTE: `uplift` here is interpreted as a multiplicative factor relative to the
-            # global uplift. Missing segments default to 1.0 (no additional uplift).
-            return adjusted_forecast * uplift_df["uplift"].fillna(1.0)
+            # Use pd.Index for merge keys to satisfy Axes protocol
+            merge_on = pd.Index(self.segment_cols).tolist()
+
+            # Merge uplift_table with the DataFrame based on segment columns.
+            uplift_df = df.merge(table, on=merge_on, how="left")
+
+            # Extract the uplift column and fill missing segments with 1.0
+            multiplier_ser = cast(pd.Series, uplift_df["uplift"]).fillna(1.0)
+
+            # Solve the reportOperatorIssue by casting to concrete numpy arrays of floats.
+            # This satisfies Pyright that the '*' operator is valid.
+            arr_baseline = cast("np.ndarray[Any, np.dtype[np.float64]]", adjusted_forecast.values)
+            arr_multiplier = cast("np.ndarray[Any, np.dtype[np.float64]]", multiplier_ser.values)
+            
+            result_raw = arr_baseline * arr_multiplier
+            return pd.Series(result_raw, index=df.index, name="readiness_forecast")
 
         return adjusted_forecast
 
     def transform(self, df: pd.DataFrame, forecast_col: str) -> pd.DataFrame:
-        """Transform the input DataFrame by applying the forecast adjustment.
-
-        This method applies the RAL policy to adjust the forecast column and adds a new column
-        with the adjusted forecast.
-
-        Parameters
-        ----------
-        df : pd.DataFrame
-            The input DataFrame containing the forecast to adjust.
-        forecast_col : str
-            The name of the column in `df` containing the forecast values to adjust.
-
-        Returns
-        -------
-        pd.DataFrame
-            The transformed DataFrame with the adjusted forecast values added.
-        """
+        """Transform the input DataFrame by applying the forecast adjustment."""
         df_copy = df.copy()
         df_copy["readiness_forecast"] = self.adjust_forecast(df_copy, forecast_col)
         return df_copy
 
 
-# Convenience default policy instance (for the policies package API)
+# Convenience default policy instance
 DEFAULT_RAL_POLICY = RALPolicy()
 
 
@@ -143,23 +143,5 @@ def apply_ral_policy(
     forecast_col: str,
     policy: RALPolicy = DEFAULT_RAL_POLICY,
 ) -> pd.DataFrame:
-    """Convenience functional wrapper to apply a RALPolicy.
-
-    This is a thin wrapper around :meth:`RALPolicy.transform` used by callers/tests
-    that prefer a functional interface.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Input DataFrame containing the forecast column.
-    forecast_col : str
-        Name of the forecast column to adjust.
-    policy : RALPolicy
-        Policy artifact to apply. Defaults to :data:`DEFAULT_RAL_POLICY`.
-
-    Returns
-    -------
-    pd.DataFrame
-        Copy of `df` with `readiness_forecast` added.
-    """
+    """Convenience functional wrapper to apply a RALPolicy."""
     return policy.transform(df=df, forecast_col=forecast_col)

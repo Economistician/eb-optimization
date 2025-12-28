@@ -77,20 +77,20 @@ def apply_cost_ratio_policy(
     """
     co_val = policy.co if co is None else co
 
-    R = float(
-        estimate_R_cost_balance(
-            y_true=y_true,
-            y_pred=y_pred,
-            R_grid=policy.R_grid,
-            co=co_val,
-            sample_weight=sample_weight,
-        )
+    # Use Any as an intermediate to satisfy the 'ConvertibleToFloat' protocol
+    R_raw: Any = estimate_R_cost_balance(
+        y_true=y_true,
+        y_pred=y_pred,
+        R_grid=policy.R_grid,
+        co=co_val,
+        sample_weight=sample_weight,
     )
+    R = float(R_raw)
 
     diag: dict[str, Any] = {
         "method": "cost_balance",
-        "R_grid": list(map(float, policy.R_grid)),
-        "co_is_array": isinstance(co_val, list | tuple | np.ndarray | pd.Series),
+        "R_grid": [float(x) for x in policy.R_grid],
+        "co_is_array": isinstance(co_val, (list, tuple, np.ndarray, pd.Series)),
         "co_default_used": co is None,
         "R": R,
     }
@@ -112,91 +112,89 @@ def apply_entity_cost_ratio_policy(
     Apply a frozen cost-ratio policy per entity.
     """
     # ---- validation: columns ----
-    if entity_col not in df.columns:
-        raise KeyError(f"entity_col {entity_col!r} not found in df")
-    if y_true_col not in df.columns:
-        raise KeyError(f"y_true_col {y_true_col!r} not found in df")
-    if y_pred_col not in df.columns:
-        raise KeyError(f"y_pred_col {y_pred_col!r} not found in df")
-    if sample_weight_col is not None and sample_weight_col not in df.columns:
-        raise KeyError(f"sample_weight_col {sample_weight_col!r} not found in df")
+    required_cols = {entity_col, y_true_col, y_pred_col}
+    if sample_weight_col is not None:
+        required_cols.add(sample_weight_col)
+
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise KeyError(f"Missing required columns: {missing}")
 
     co_val = float(policy.co if co is None else co)
     if not np.isfinite(co_val) or co_val <= 0:
         raise ValueError(f"co must be finite and strictly positive. Got {co_val}.")
 
-    # ---- governance: min_n ----
-    counts = df.groupby(entity_col, dropna=False, sort=False).size()
-    eligible_entities = counts[counts >= policy.min_n].index
-    ineligible_entities = counts[counts < policy.min_n].index
-
-    eligible = df[df[entity_col].isin(eligible_entities)].copy()
-    ineligible = df[df[entity_col].isin(ineligible_entities)].copy()
+    # ---- governance: identify eligible entities ----
+    # Resolution for Error 133: Ensure the groupby result is strictly typed as a Series
+    # so that the .index access is valid.
+    counts_ser = cast(pd.Series, df.groupby(entity_col, dropna=False, sort=False).size())
+    
+    # Filtering creates a slice; we cast the result of that slice to Series to access .index
+    eligible_counts = cast(pd.Series, counts_ser[counts_ser >= policy.min_n])
+    eligible_list = cast(list[Any], eligible_counts.index.tolist())
+    
+    mask = df[entity_col].isin(eligible_list)
+    
+    # Cast slices back to DataFrame to preserve attribute access
+    eligible_df = cast(pd.DataFrame, df[mask]).copy()
+    ineligible_df = cast(pd.DataFrame, df[~mask]).copy()
 
     # ---- tune eligible entities ----
-    if not eligible.empty:
-        tuned = estimate_entity_R_from_balance(
-            df=eligible,
+    results_list: list[pd.DataFrame] = []
+
+    if not eligible_df.empty:
+        tuned_raw: Any = estimate_entity_R_from_balance(
+            df=eligible_df,
             entity_col=entity_col,
             y_true_col=y_true_col,
             y_pred_col=y_pred_col,
             ratios=policy.R_grid,
             co=co_val,
             sample_weight_col=sample_weight_col,
-        ).copy()
-        tuned["reason"] = None
-        tuned["n"] = tuned[entity_col].map(counts).astype(int)
-    else:
-        tuned = pd.DataFrame(
-            columns=[entity_col, "R", "cu", "co", "under_cost", "over_cost", "diff", "reason", "n"]
         )
+        tuned = cast(pd.DataFrame, tuned_raw).copy()
+        
+        tuned["reason"] = None
+        # Explicit mapping: use Any bridge to satisfy Pyright's strict 'map' signature
+        mapper: Any = counts_ser
+        tuned["n"] = tuned[entity_col].map(mapper).astype(int)
+        results_list.append(tuned)
 
     # ---- build rows for ineligible entities ----
-    if not ineligible.empty:
+    if not ineligible_df.empty:
         ineligible_rows = (
-            ineligible[[entity_col]]
+            cast(pd.DataFrame, ineligible_df[[entity_col]])
             .drop_duplicates()
-            .assign(
-                R=np.nan,
-                cu=np.nan,
-                co=co_val,
-                under_cost=np.nan,
-                over_cost=np.nan,
-                diff=np.nan,
-                reason=f"min_n_not_met(<{policy.min_n})",
-            )
-            .copy()
         )
-        ineligible_rows["n"] = ineligible_rows[entity_col].map(counts).astype(int)
-    else:
-        ineligible_rows = pd.DataFrame(
-            columns=[entity_col, "R", "cu", "co", "under_cost", "over_cost", "diff", "reason", "n"]
+        ineligible_rows = ineligible_rows.assign(
+            R=np.nan,
+            cu=np.nan,
+            co=co_val,
+            under_cost=np.nan,
+            over_cost=np.nan,
+            diff=np.nan,
+            reason=f"min_n_not_met(<{policy.min_n})",
         )
+        mapper_ineligible: Any = counts_ser
+        ineligible_rows["n"] = ineligible_rows[entity_col].map(mapper_ineligible).astype(int)
+        results_list.append(ineligible_rows)
 
-    # ---- combine ----
-    if ineligible_rows.empty:
-        out = tuned
-    elif tuned.empty:
-        out = ineligible_rows
-    else:
-        out = pd.concat([tuned, ineligible_rows], ignore_index=True, sort=False)
+    # ---- combine and organize ----
+    if not results_list:
+        schema_cols = [entity_col, "R", "cu", "co", "n", "reason", "under_cost", "over_cost", "diff"]
+        # Resolution for Error 187: Wrap list in pd.Index to satisfy the 'Axes' requirement
+        return pd.DataFrame(columns=pd.Index(schema_cols))
 
-    # ---- stable column ordering ----
+    out = pd.concat(results_list, ignore_index=True, sort=False)
+
     base_cols = [entity_col, "R", "cu", "co", "n", "reason"]
     diag_cols = ["under_cost", "over_cost", "diff"]
+    
     remaining = [str(c) for c in out.columns if c not in base_cols + diag_cols]
+    target_cols = (base_cols + diag_cols + remaining) if include_diagnostics else (base_cols + remaining)
 
-    target_cols = (
-        (base_cols + diag_cols + remaining) if include_diagnostics else (base_cols + remaining)
-    )
-
-    # Ensure all expected columns exist (even if empty) to avoid slicing errors
-    for c in target_cols:
-        if c not in out.columns:
-            out[c] = np.nan
-
-    # Cast to DataFrame to satisfy Pyright return type
-    return cast(pd.DataFrame, out[target_cols])
+    # Resolution for Error 187: Use pd.Index for the column slice to satisfy strict typing
+    return cast(pd.DataFrame, out[pd.Index(target_cols)])
 
 
 __all__ = [
