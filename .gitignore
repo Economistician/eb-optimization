@@ -190,3 +190,5 @@ __marimo__/
 # PyPI credentials
 ######################################
 .pypirc
+# Local junction to shared tooling
+tooling/
