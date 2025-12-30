@@ -282,3 +282,52 @@ def test_threshold_two_band_policy_picklable():
     assert restored_thresholds["A"].high == policy_thresholds["A"].high
     assert restored_deltas["A"].d_mid == policy_deltas["A"].d_mid
     assert restored_deltas["A"].d_high == policy_deltas["A"].d_high
+
+
+def test_threshold_two_band_policy_adjust_forecast_capped_caps_upper_and_lower():
+    df = pd.DataFrame(
+        {
+            "interface": ["A", "A", "B", "B"],
+            "yhat": [0.86, 0.90, -0.10, 0.50],
+        }
+    )
+
+    # A gets a +0.30 high uplift; B uses global +0.10 high uplift.
+    policy = RALThresholdTwoBandPolicy(
+        global_thresholds=RALBandThresholds(mid=0.75, high=0.85),
+        global_deltas=RALDeltas(d_mid=0.0, d_high=0.10),
+        per_key_deltas={"A": RALDeltas(d_mid=0.0, d_high=0.30)},
+    )
+
+    uncapped = policy.adjust_forecast(df, "yhat", key_col="interface").to_numpy(dtype=float)
+    capped = policy.adjust_forecast_capped(
+        df,
+        "yhat",
+        key_col="interface",
+        lower=0.0,
+        upper=1.0,
+    ).to_numpy(dtype=float)
+
+    # Uncapped:
+    #  A: 0.86 -> 1.16, 0.90 -> 1.20
+    #  B: -0.10 -> -0.10, 0.50 -> 0.50
+    expected_uncapped = np.array([1.16, 1.20, -0.10, 0.50], dtype=float)
+    np.testing.assert_allclose(uncapped, expected_uncapped, rtol=0.0, atol=1e-12)
+
+    # Capped to [0, 1]:
+    expected_capped = np.array([1.00, 1.00, 0.00, 0.50], dtype=float)
+    np.testing.assert_allclose(capped, expected_capped, rtol=0.0, atol=1e-12)
+
+
+def test_threshold_two_band_policy_adjust_forecast_capped_upper_none_disables_upper_cap():
+    df = pd.DataFrame({"yhat": [0.90]})
+    policy = RALThresholdTwoBandPolicy(
+        global_thresholds=RALBandThresholds(mid=0.75, high=0.85),
+        global_deltas=RALDeltas(d_mid=0.0, d_high=0.30),
+    )
+
+    uncapped = policy.adjust_forecast(df, "yhat").to_numpy(dtype=float)
+    capped_no_upper = policy.adjust_forecast_capped(df, "yhat", upper=None).to_numpy(dtype=float)
+
+    np.testing.assert_allclose(uncapped, np.array([1.20], dtype=float), rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(capped_no_upper, uncapped, rtol=0.0, atol=1e-12)

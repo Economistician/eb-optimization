@@ -456,6 +456,46 @@ class RALThresholdTwoBandPolicy:
 
         return pd.Series(out_all, index=df.index, name="readiness_forecast")
 
+    def adjust_forecast_capped(
+        self,
+        df: pd.DataFrame,
+        forecast_col: str,
+        *,
+        key_col: str | None = None,
+        lower: float = 0.0,
+        upper: float | None = 1.0,
+    ) -> pd.Series:
+        """Apply the canonical policy and optionally cap the adjusted forecast.
+
+        This is a low-risk guardrail for domains with known physical bounds.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Input DataFrame containing the forecast to adjust.
+        forecast_col : str
+            Column name containing baseline forecast values.
+        key_col : str, optional
+            Column name containing keys for per-key overrides (e.g., "interface").
+        lower : float, default 0.0
+            Lower cap applied via `np.maximum`.
+        upper : float or None, default 1.0
+            Upper cap applied via `np.minimum`. Use None to disable the upper cap.
+
+        Returns
+        -------
+        pd.Series
+            Adjusted and (optionally) capped forecast as "readiness_forecast".
+        """
+        out = self.adjust_forecast(df, forecast_col, key_col=key_col).to_numpy(dtype=float)
+
+        if lower is not None:
+            out = np.maximum(out, float(lower))
+        if upper is not None:
+            out = np.minimum(out, float(upper))
+
+        return pd.Series(out, index=df.index, name="readiness_forecast")
+
     def transform(
         self,
         df: pd.DataFrame,
