@@ -49,19 +49,19 @@ on the implementation and arguments provided.
 
 **Parameters**
 
-- `start`  
+- `start`
   Lower bound of the grid.
 
-- `stop`  
+- `stop`
   Upper bound of the grid.
 
-- `num` *(optional)*  
+- `num` *(optional)*
   Number of points to generate.
 
-- `step` *(optional)*  
+- `step` *(optional)*
   Step size between points.
 
-- `include_endpoints` *(optional)*  
+- `include_endpoints` *(optional)*
   Whether to include `start` and `stop` explicitly.
 
 **Returns**

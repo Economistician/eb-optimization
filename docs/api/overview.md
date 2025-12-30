@@ -36,8 +36,8 @@ Anything not documented here should be treated as **internal** and may change wi
 
 The package is organized into three primary areas:
 
-- **policies/**: policy artifacts and application helpers  
-- **tuning/**: estimation and calibration routines that produce policy parameters  
+- **policies/**: policy artifacts and application helpers
+- **tuning/**: estimation and calibration routines that produce policy parameters
 - **search/**: deterministic candidate selection utilities used by tuning
 
 The API reference mirrors this structure.

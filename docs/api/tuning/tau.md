@@ -49,21 +49,21 @@ using deterministic candidate evaluation and explicit tie-breaking.
 
 **Parameters**
 
-- `y_true`  
+- `y_true`
   Actual observed values.
 
-- `y_pred`  
+- `y_pred`
   Forecast values corresponding to `y_true`.
 
-- `method` *(optional)*  
+- `method` *(optional)*
   Strategy used to select τ. If not provided, a documented default method is used.
 
-- `candidate_tau` *(optional)*  
+- `candidate_tau` *(optional)*
   Iterable of candidate τ values. If not provided, a documented default grid is used.
 
 **Returns**
 
-- `TauEstimate`  
+- `TauEstimate`
   Structured estimate containing:
   - Selected τ value
   - Method metadata
@@ -97,22 +97,22 @@ candidate grid.
 
 **Parameters**
 
-- `df`  
+- `df`
   Panel DataFrame containing actuals and forecasts.
 
-- `entity_col`  
+- `entity_col`
   Column identifying entities (e.g., store, region).
 
-- `actual_col`  
+- `actual_col`
   Column containing actual values.
 
-- `forecast_col`  
+- `forecast_col`
   Column containing forecast values.
 
-- `method` *(optional)*  
+- `method` *(optional)*
   Selection strategy.
 
-- `candidate_tau` *(optional)*  
+- `candidate_tau` *(optional)*
   Iterable of candidate τ values.
 
 **Returns**

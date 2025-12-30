@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -9,6 +11,63 @@ from eb_optimization.tuning.cost_ratio import (
     estimate_entity_R_from_balance,
     estimate_R_cost_balance,
 )
+
+
+# =============================================================================
+# Helpers (robust to small API changes / richer return types)
+# =============================================================================
+def _as_float_R(res: Any) -> float:
+    """
+    Normalize an R estimate into a float.
+
+    Supports:
+      - float/int
+      - (R, diag) tuple
+      - object with .R
+      - object with .value (fallback)
+    """
+    if isinstance(res, tuple):
+        if len(res) == 2:
+            R, _diag = res
+            return float(R)
+        raise TypeError(f"Unexpected tuple return for R estimate: {res!r}")
+
+    obj = cast(Any, res)
+    if hasattr(obj, "R"):
+        return float(obj.R)
+    if hasattr(obj, "value"):
+        return float(obj.value)
+
+    return float(res)
+
+
+def _as_entity_df(res: Any) -> pd.DataFrame:
+    """
+    Normalize an entity-level return into a DataFrame.
+
+    Supports:
+      - pd.DataFrame (legacy mode)
+      - EntityCostRatioEstimate-like object with .table
+      - object with .df / .result / .table
+    """
+    if isinstance(res, pd.DataFrame):
+        return res
+
+    obj = cast(Any, res)
+
+    # Prefer .table if present (artifact mode)
+    if hasattr(obj, "table"):
+        table = obj.table
+        if isinstance(table, pd.DataFrame):
+            return table
+
+    for attr in ("df", "result"):
+        if hasattr(obj, attr):
+            val = getattr(obj, attr)
+            if isinstance(val, pd.DataFrame):
+                return val
+
+    raise TypeError(f"Unexpected return type for entity estimate: {type(res)!r}")
 
 
 # =============================================================================
@@ -22,12 +81,13 @@ def test_estimate_R_cost_balance_perfect_forecast_prefers_R_near_1():
     y_true = [10, 20, 30]
     y_pred = [10, 20, 30]
 
-    R = estimate_R_cost_balance(
+    res = estimate_R_cost_balance(
         y_true=y_true,
         y_pred=y_pred,
         R_grid=(0.5, 1.0, 2.0, 3.0),
         co=1.0,
     )
+    R = _as_float_R(res)
 
     assert R == 1.0
 
@@ -49,12 +109,13 @@ def test_estimate_R_cost_balance_balanced_example_has_known_optimum():
     y_true = np.array([10.0, 0.0])
     y_pred = np.array([0.0, 20.0])
 
-    R = estimate_R_cost_balance(
+    res = estimate_R_cost_balance(
         y_true=y_true,
         y_pred=y_pred,
         R_grid=(0.5, 1.0, 2.0, 3.0),
         co=1.0,
     )
+    R = _as_float_R(res)
 
     assert np.isclose(R, 2.0)
 
@@ -70,13 +131,14 @@ def test_estimate_R_cost_balance_respects_sample_weights():
     w = [1.0, 2.0, 0.5]
 
     R_grid = (0.5, 1.0, 2.0, 3.0)
-    R = estimate_R_cost_balance(
+    res = estimate_R_cost_balance(
         y_true=y_true,
         y_pred=y_pred,
         R_grid=R_grid,
         co=1.0,
         sample_weight=w,
     )
+    R = _as_float_R(res)
 
     assert R in R_grid
 
@@ -131,7 +193,7 @@ def test_estimate_entity_R_basic_structure():
     """
     df = _build_simple_panel()
 
-    result = estimate_entity_R_from_balance(
+    res = estimate_entity_R_from_balance(
         df=df,
         entity_col="entity",
         y_true_col="actual_qty",
@@ -139,6 +201,7 @@ def test_estimate_entity_R_basic_structure():
         ratios=(0.5, 1.0, 2.0, 3.0),
         co=1.0,
     )
+    result = _as_entity_df(res)
 
     assert set(result["entity"]) == {"A", "B"}
     assert len(result) == 2
@@ -160,7 +223,7 @@ def test_estimate_entity_R_behavior_shortfall_vs_overbuild():
     """
     df = _build_simple_panel()
 
-    result = estimate_entity_R_from_balance(
+    res = estimate_entity_R_from_balance(
         df=df,
         entity_col="entity",
         y_true_col="actual_qty",
@@ -168,6 +231,7 @@ def test_estimate_entity_R_behavior_shortfall_vs_overbuild():
         ratios=(0.5, 1.0, 2.0, 4.0),
         co=1.0,
     )
+    result = _as_entity_df(res)
 
     R_A = float(result.loc[result["entity"] == "A", "R"].iloc[0])
     R_B = float(result.loc[result["entity"] == "B", "R"].iloc[0])
@@ -195,7 +259,7 @@ def test_estimate_entity_R_zero_error_picks_R_near_one():
     ratios = (0.4, 0.9, 1.3, 3.0)
     expected_R = 0.9  # closest to 1.0 in this grid
 
-    result = estimate_entity_R_from_balance(
+    res = estimate_entity_R_from_balance(
         df=df,
         entity_col="entity",
         y_true_col="actual_qty",
@@ -203,13 +267,14 @@ def test_estimate_entity_R_zero_error_picks_R_near_one():
         ratios=ratios,
         co=2.0,
     )
+    result = _as_entity_df(res)
 
     for _, row in result.iterrows():
-        assert np.isclose(row["R"], expected_R)
-        assert np.isclose(row["cu"], expected_R * 2.0)
-        assert np.isclose(row["under_cost"], 0.0)
-        assert np.isclose(row["over_cost"], 0.0)
-        assert np.isclose(row["diff"], 0.0)
+        assert np.isclose(float(row["R"]), expected_R)
+        assert np.isclose(float(row["cu"]), expected_R * 2.0)
+        assert np.isclose(float(row["under_cost"]), 0.0)
+        assert np.isclose(float(row["over_cost"]), 0.0)
+        assert np.isclose(float(row["diff"]), 0.0)
 
 
 def test_estimate_entity_R_respects_sample_weights():
@@ -238,7 +303,6 @@ def test_estimate_entity_R_respects_sample_weights():
         co=1.0,
         sample_weight_col="weight",
     )
-
     res_shortfall_heavy = estimate_entity_R_from_balance(
         df=df.rename(columns={"w_shortfall_heavy": "weight"}),
         entity_col="entity",
@@ -249,10 +313,11 @@ def test_estimate_entity_R_respects_sample_weights():
         sample_weight_col="weight",
     )
 
-    R_balanced = float(res_balanced.loc[res_balanced["entity"] == "X", "R"].iloc[0])
-    R_shortfall_heavy = float(
-        res_shortfall_heavy.loc[res_shortfall_heavy["entity"] == "X", "R"].iloc[0]
-    )
+    bal = _as_entity_df(res_balanced)
+    sh = _as_entity_df(res_shortfall_heavy)
+
+    R_balanced = float(bal.loc[bal["entity"] == "X", "R"].iloc[0])
+    R_shortfall_heavy = float(sh.loc[sh["entity"] == "X", "R"].iloc[0])
 
     assert R_shortfall_heavy <= R_balanced
 
@@ -353,14 +418,15 @@ def test_estimate_entity_R_return_result_matches_legacy_R():
     df = _build_simple_panel()
     ratios = (0.5, 1.0, 2.0, 4.0)
 
-    legacy = estimate_entity_R_from_balance(
+    legacy_res = estimate_entity_R_from_balance(
         df=df,
         entity_col="entity",
         y_true_col="actual_qty",
         y_pred_col="forecast_qty",
         ratios=ratios,
         co=1.0,
-    ).set_index("entity")
+    )
+    legacy = _as_entity_df(legacy_res).set_index("entity")
 
     art = estimate_entity_R_from_balance(
         df=df,

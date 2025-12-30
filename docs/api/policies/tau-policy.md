@@ -41,10 +41,10 @@ TauPolicy(
 
 **Parameters**
 
-- `tau`  
+- `tau`
   Service threshold parameter used to compute HR@τ and other threshold-sensitive metrics.
 
-- `metadata` *(optional)*  
+- `metadata` *(optional)*
   Additional contextual information (e.g., estimation method, window, version, rationale).
 
 **Behavioral Guarantees**
@@ -92,13 +92,13 @@ in the provided policy.
 
 **Parameters**
 
-- `y_true`  
+- `y_true`
   Actual observed values.
 
-- `y_pred`  
+- `y_pred`
   Forecast values.
 
-- `policy`  
+- `policy`
   Instance of `TauPolicy`.
 
 **Returns**

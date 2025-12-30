@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -10,6 +12,59 @@ from eb_optimization.policies.cost_ratio_policy import (
     apply_cost_ratio_policy,
     apply_entity_cost_ratio_policy,
 )
+
+
+# =============================================================================
+# Helpers (robust to small API changes / richer return types)
+# =============================================================================
+def _unpack_cost_ratio_result(res: Any) -> tuple[float, dict[str, Any]]:
+    """
+    apply_cost_ratio_policy might return:
+      - (R, diag)
+      - CostRatioEstimate-like object with .R and .diagnostics (or .diag)
+      - R alone
+
+    Normalize to (float_R, diag_dict).
+    """
+    if isinstance(res, tuple):
+        if len(res) == 2:
+            R, diag = res
+            return float(R), dict(cast(dict[str, Any], diag))
+        # Explicitly reject other tuple shapes so Pyright doesn't assume tuple is still possible below.
+        raise TypeError(f"Unexpected tuple return from apply_cost_ratio_policy: {res!r}")
+
+    # dataclass-like / rich object
+    if hasattr(res, "R"):
+        obj = cast(Any, res)  # hasattr does not narrow for Pyright; cast makes attr access safe
+        R_val = float(obj.R)
+        diag = getattr(obj, "diagnostics", None)
+        if diag is None:
+            diag = getattr(obj, "diag", None)
+        return R_val, dict(cast(dict[str, Any], diag or {}))
+
+    # scalar
+    return float(res), {}
+
+
+def _as_entity_df(res: Any) -> pd.DataFrame:
+    """
+    apply_entity_cost_ratio_policy might return:
+      - pd.DataFrame (legacy / simplest)
+      - EntityCostRatioEstimate-like object with one of: .df / .table / .result
+
+    Normalize to a DataFrame.
+    """
+    if isinstance(res, pd.DataFrame):
+        return res
+
+    obj = cast(Any, res)  # attribute-based probing; keep it explicit for Pyright
+    for attr in ("df", "table", "result"):
+        if hasattr(obj, attr):
+            val = getattr(obj, attr)
+            if isinstance(val, pd.DataFrame):
+                return val
+
+    raise TypeError(f"Unexpected return type from apply_entity_cost_ratio_policy: {type(res)!r}")
 
 
 # =============================================================================
@@ -44,7 +99,8 @@ def test_apply_cost_ratio_policy_uses_policy_defaults_when_co_none():
 
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=2.0)
 
-    R, diag = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=None)
+    res = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=None)
+    R, diag = _unpack_cost_ratio_result(res)
 
     # Balanced example chooses 2.0 regardless of co scale (costs scale cancels in balance),
     # but we mainly assert diagnostics reflect default usage.
@@ -64,7 +120,8 @@ def test_apply_cost_ratio_policy_balanced_example_has_known_optimum():
 
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0)
 
-    R, _ = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=1.0)
+    res = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=1.0)
+    R, _ = _unpack_cost_ratio_result(res)
     assert np.isclose(R, 2.0)
 
 
@@ -73,12 +130,13 @@ def test_apply_cost_ratio_policy_returns_nan_safe_diag_when_co_is_array():
     y_pred = np.array([0.0, 20.0])
     co = np.array([1.0, 1.0])
 
-    R, diag = apply_cost_ratio_policy(
+    res = apply_cost_ratio_policy(
         y_true=y_true,
         y_pred=y_pred,
         policy=DEFAULT_COST_RATIO_POLICY,
         co=co,
     )
+    R, diag = _unpack_cost_ratio_result(res)
 
     assert np.isfinite(R)
     assert diag["co_is_array"] is True
@@ -106,13 +164,14 @@ def test_apply_entity_cost_ratio_policy_min_n_governance_blocks_small_entities()
 
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0, min_n=6)
 
-    out = apply_entity_cost_ratio_policy(
+    res = apply_entity_cost_ratio_policy(
         df,
         entity_col="entity",
         y_true_col="actual_qty",
         y_pred_col="forecast_qty",
         policy=policy,
     )
+    out = _as_entity_df(res)
 
     # one row per entity
     assert set(out["entity"]) == {"A", "B"}
@@ -134,7 +193,7 @@ def test_apply_entity_cost_ratio_policy_includes_or_excludes_diagnostics():
     df = _panel_for_entity_tests()
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0, min_n=6)
 
-    out_with = apply_entity_cost_ratio_policy(
+    res_with = apply_entity_cost_ratio_policy(
         df,
         entity_col="entity",
         y_true_col="actual_qty",
@@ -142,9 +201,10 @@ def test_apply_entity_cost_ratio_policy_includes_or_excludes_diagnostics():
         policy=policy,
         include_diagnostics=True,
     )
+    out_with = _as_entity_df(res_with)
     assert {"under_cost", "over_cost", "diff"}.issubset(out_with.columns)
 
-    out_without = apply_entity_cost_ratio_policy(
+    res_without = apply_entity_cost_ratio_policy(
         df,
         entity_col="entity",
         y_true_col="actual_qty",
@@ -152,6 +212,7 @@ def test_apply_entity_cost_ratio_policy_includes_or_excludes_diagnostics():
         policy=policy,
         include_diagnostics=False,
     )
+    out_without = _as_entity_df(res_without)
     assert not {"under_cost", "over_cost", "diff"}.issubset(out_without.columns)
 
 
@@ -193,7 +254,7 @@ def test_apply_entity_cost_ratio_policy_uses_policy_default_co_when_none():
 
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=2.0, min_n=6)
 
-    out = apply_entity_cost_ratio_policy(
+    res = apply_entity_cost_ratio_policy(
         df,
         entity_col="entity",
         y_true_col="actual_qty",
@@ -201,6 +262,7 @@ def test_apply_entity_cost_ratio_policy_uses_policy_default_co_when_none():
         policy=policy,
         co=None,
     )
+    out = _as_entity_df(res)
 
     row = out.iloc[0]
     assert np.isclose(float(row["co"]), 2.0)

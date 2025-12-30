@@ -43,19 +43,19 @@ Electric Barometer replaces this with **first-class artifacts** so that:
 
 Decision artifacts typically move through the following lifecycle:
 
-1. **Estimation**  
+1. **Estimation**
    Parameters are estimated using historical data.
 
-2. **Review**  
+2. **Review**
    Diagnostics and assumptions are inspected.
 
-3. **Freezing**  
+3. **Freezing**
    Parameters are encapsulated into immutable policy objects.
 
-4. **Deployment**  
+4. **Deployment**
    Policies are applied in evaluation or production workflows.
 
-5. **Revision**  
+5. **Revision**
    Artifacts are periodically re-estimated and replaced.
 
 This lifecycle mirrors mature operational decision-making.

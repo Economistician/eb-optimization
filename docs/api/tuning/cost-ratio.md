@@ -46,18 +46,18 @@ to a deterministic criterion.
 
 **Parameters**
 
-- `y_true`  
+- `y_true`
   Actual observed values.
 
-- `y_pred`  
+- `y_pred`
   Forecast values corresponding to `y_true`.
 
-- `candidate_R` *(optional)*  
+- `candidate_R` *(optional)*
   Iterable of candidate R values. If not provided, a documented default grid is used.
 
 **Returns**
 
-- `CostRatioEstimate`  
+- `CostRatioEstimate`
   Structured estimate containing:
   - Selected R value
   - Balance diagnostics
@@ -89,19 +89,19 @@ Computes one cost ratio estimate per entity using balance-based selection.
 
 **Parameters**
 
-- `df`  
+- `df`
   Panel DataFrame containing actuals and forecasts.
 
-- `entity_col`  
+- `entity_col`
   Column identifying entities (e.g., store, region).
 
-- `actual_col`  
+- `actual_col`
   Column containing actual values.
 
-- `forecast_col`  
+- `forecast_col`
   Column containing forecast values.
 
-- `candidate_R` *(optional)*  
+- `candidate_R` *(optional)*
   Iterable of candidate R values.
 
 **Returns**

@@ -49,13 +49,13 @@ Computes CWSL for each candidate R value in `R_grid`, holding all other inputs f
 
 **Parameters**
 
-- `y_true`  
+- `y_true`
   Actual observed values.
 
-- `y_pred`  
+- `y_pred`
   Forecast values corresponding to `y_true`.
 
-- `R_grid`  
+- `R_grid`
   Iterable of candidate cost ratio values to evaluate.
 
 **Returns**
@@ -92,19 +92,19 @@ format suitable for aggregation and visualization.
 
 **Parameters**
 
-- `df`  
+- `df`
   Panel DataFrame containing actuals and forecasts.
 
-- `entity_col`  
+- `entity_col`
   Column identifying entities.
 
-- `actual_col`  
+- `actual_col`
   Column containing actual values.
 
-- `forecast_col`  
+- `forecast_col`
   Column containing forecast values.
 
-- `R_grid`  
+- `R_grid`
   Iterable of candidate cost ratio values.
 
 **Returns**

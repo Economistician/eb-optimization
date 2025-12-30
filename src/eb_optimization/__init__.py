@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from importlib.metadata import PackageNotFoundError, version
-
 """
 `eb_optimization` — optimization and tuning layer for the Electric Barometer ecosystem.
 
@@ -14,6 +10,18 @@ This package contains the **optimization layer** of Electric Barometer:
 It intentionally does **not** define metric primitives or evaluation math.
 Those live in `eb-metrics` (and orchestration lives in `eb-evaluation`).
 """
+
+from __future__ import annotations
+
+from importlib.metadata import PackageNotFoundError, version
+
+from .policies.ral_policy import (
+    DEFAULT_RAL_POLICY,
+    RALDeltas,
+    RALTwoBandPolicy,
+    apply_ral_policy,
+)
+from .tuning.cost_ratio import EntityCostRatioEstimate
 
 
 def _resolve_version() -> str:
@@ -35,4 +43,11 @@ def _resolve_version() -> str:
 
 __version__ = _resolve_version()
 
-__all__ = ["__version__"]
+__all__ = [
+    "DEFAULT_RAL_POLICY",
+    "EntityCostRatioEstimate",
+    "RALDeltas",
+    "RALTwoBandPolicy",
+    "__version__",
+    "apply_ral_policy",
+]

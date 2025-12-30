@@ -41,10 +41,10 @@ CostRatioPolicy(
 
 **Parameters**
 
-- `R`  
+- `R`
   Cost ratio parameter controlling asymmetry.
 
-- `metadata` *(optional)*  
+- `metadata` *(optional)*
   Additional contextual information (e.g., estimation window, method, version).
 
 **Behavioral Guarantees**
@@ -94,13 +94,13 @@ encoded in the provided policy.
 
 **Parameters**
 
-- `y_true`  
+- `y_true`
   Actual observed values.
 
-- `y_pred`  
+- `y_pred`
   Forecast values.
 
-- `policy`  
+- `policy`
   Instance of `CostRatioPolicy`.
 
 **Returns**

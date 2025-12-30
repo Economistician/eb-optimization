@@ -49,21 +49,21 @@ artifact suitable for deterministic application.
 
 **Parameters**
 
-- `df`  
+- `df`
   Panel DataFrame containing forecasts and actual outcomes.
 
-- `entity_col` *(optional)*  
+- `entity_col` *(optional)*
   Column identifying entities. When provided, tuning may account for entity-level behavior.
 
-- `actual_col`  
+- `actual_col`
   Column containing realized outcomes.
 
-- `forecast_col`  
+- `forecast_col`
   Column containing unadjusted forecast values.
 
 **Returns**
 
-- `RALPolicy`  
+- `RALPolicy`
   Immutable policy artifact encoding readiness adjustment behavior and metadata.
 
 ---

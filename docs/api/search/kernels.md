@@ -49,13 +49,13 @@ rule when multiple candidates are equivalent.
 
 **Parameters**
 
-- `candidates`  
+- `candidates`
   Iterable of candidate values.
 
-- `scores`  
+- `scores`
   Iterable of objective values corresponding to each candidate.
 
-- `tie_breaker` *(optional)*  
+- `tie_breaker` *(optional)*
   Strategy used to resolve ties (e.g., smallest value, most conservative). If not provided,
   a documented default is used.
 
@@ -88,13 +88,13 @@ rule when multiple candidates are equivalent.
 
 **Parameters**
 
-- `candidates`  
+- `candidates`
   Iterable of candidate values.
 
-- `scores`  
+- `scores`
   Iterable of objective values corresponding to each candidate.
 
-- `tie_breaker` *(optional)*  
+- `tie_breaker` *(optional)*
   Strategy used to resolve ties.
 
 **Returns**

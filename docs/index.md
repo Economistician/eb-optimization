@@ -11,13 +11,13 @@ pure metric computation and downstream evaluation or operational use.
 
 Electric Barometer is intentionally layered to separate concerns and ensure governance, auditability, and reuse:
 
-- **eb-metrics**  
+- **eb-metrics**
   Defines cost-weighted error metrics, service loss functions, and readiness statistics.
 
-- **eb-optimization** *(this package)*  
+- **eb-optimization** *(this package)*
   Determines *how* those metrics should be parameterized in practice via calibrated policies.
 
-- **eb-evaluation**  
+- **eb-evaluation**
   Applies frozen policies to real forecasts and actuals to produce interpretable results.
 
 This separation ensures that **decision logic is explicit, reviewable, and reproducible**, rather than hidden inside
@@ -62,13 +62,13 @@ This ensures reproducibility even when multiple candidate solutions are equivale
 
 At a high level, the package is organized as:
 
-- **policies/**  
+- **policies/**
   Policy dataclasses, defaults, and application helpers.
 
-- **tuning/**  
+- **tuning/**
   Estimation and calibration routines that produce policy parameters.
 
-- **search/**  
+- **search/**
   Shared utilities for candidate generation and deterministic selection.
 
 Each submodule is documented independently in the API reference.
@@ -79,16 +79,16 @@ Each submodule is documented independently in the API reference.
 
 The design of eb-optimization is guided by the following principles:
 
-- **Explicitness over convenience**  
+- **Explicitness over convenience**
   All decision parameters are surfaced as first-class objects.
 
-- **Reproducibility by default**  
+- **Reproducibility by default**
   Identical inputs must produce identical outputs.
 
-- **Auditability**  
+- **Auditability**
   Decisions should be explainable after the fact using frozen artifacts.
 
-- **Ecosystem composability**  
+- **Ecosystem composability**
   The package is usable standalone, but designed to integrate cleanly with other EB layers.
 
 ---

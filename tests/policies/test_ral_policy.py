@@ -1,8 +1,14 @@
 import pickle
 
+import numpy as np
 import pandas as pd
+import pytest
 
-from eb_optimization.policies.ral_policy import RALPolicy
+from eb_optimization.policies.ral_policy import (
+    RALDeltas,
+    RALPolicy,
+    RALTwoBandPolicy,
+)
 
 
 # Test: Initialization with global uplift and segment-level uplifts
@@ -46,7 +52,7 @@ def test_is_segmented_with_global_only_policy():
 
 # Test: is_segmented method returns False when the uplift_table is empty
 def test_is_segmented_with_empty_uplift_table():
-    uplift_table = pd.DataFrame(columns=["segment", "uplift"])
+    uplift_table = pd.DataFrame(columns=pd.Index(["segment", "uplift"]))
     policy = RALPolicy(global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table)
 
     assert policy.is_segmented() is False, (
@@ -95,3 +101,50 @@ def test_serialization_of_global_only_policy():
     assert deserialized_policy.uplift_table is None, (
         "Uplift table should be None after deserialization"
     )
+
+
+def test_two_band_policy_global_adjustment():
+    df = pd.DataFrame(
+        {
+            "yhat": [0.70, 0.76, 0.84, 0.85, 0.90],
+        }
+    )
+    policy = RALTwoBandPolicy(global_deltas=RALDeltas(d_mid=0.02, d_high=0.01))
+
+    out = policy.adjust_forecast(df, "yhat")
+
+    expected = np.array([0.70, 0.78, 0.86, 0.86, 0.91], dtype=float)
+    assert out.name == "readiness_forecast"
+    np.testing.assert_allclose(out.to_numpy(dtype=float), expected, rtol=0.0, atol=1e-12)
+
+
+def test_two_band_policy_per_key_override_and_fallback():
+    df = pd.DataFrame(
+        {
+            "interface": ["A", "A", "B", "B", "C"],
+            "yhat": [0.76, 0.86, 0.76, 0.86, 0.86],
+        }
+    )
+    policy = RALTwoBandPolicy(
+        global_deltas=RALDeltas(d_mid=0.01, d_high=0.01),
+        per_key_deltas={
+            "A": RALDeltas(d_mid=0.02, d_high=0.00),  # A: stronger mid, no high
+            "B": RALDeltas(d_mid=0.00, d_high=0.02),  # B: no mid, stronger high
+        },
+    )
+
+    out = policy.adjust_forecast(df, "yhat", key_col="interface").to_numpy(dtype=float)
+
+    # A: 0.76 -> +0.02 = 0.78 (mid band), 0.86 -> +0.00 = 0.86 (high band but d_high=0.00)
+    # B: 0.76 -> +0.00 = 0.76 (mid band but d_mid=0.00), 0.86 -> +0.02 = 0.88 (high band)
+    # C: fallback to global: 0.86 -> +0.01 = 0.87
+    expected = np.array([0.78, 0.86, 0.76, 0.88, 0.87], dtype=float)
+    np.testing.assert_allclose(out, expected, rtol=0.0, atol=1e-12)
+
+
+def test_two_band_policy_missing_key_col_raises():
+    df = pd.DataFrame({"yhat": [0.8]})
+    policy = RALTwoBandPolicy(global_deltas=RALDeltas(d_mid=0.01, d_high=0.01))
+
+    with pytest.raises(ValueError):
+        policy.adjust_forecast(df, "yhat", key_col="interface")

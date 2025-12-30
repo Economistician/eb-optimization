@@ -84,10 +84,10 @@ The result is an adjusted forecast signal suitable for downstream evaluation.
 
 **Parameters**
 
-- `forecasts`  
+- `forecasts`
   Forecast values prior to readiness adjustment.
 
-- `policy`  
+- `policy`
   Instance of `RALPolicy`.
 
 **Returns**

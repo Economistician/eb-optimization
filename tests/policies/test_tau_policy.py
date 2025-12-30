@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -85,18 +85,19 @@ def _unpack_tau_result(res: Any) -> tuple[float, dict]:
       - tau alone
     Normalize to (tau, diag).
     """
-    if isinstance(res, tuple) and len(res) == 2:
-        tau, diag = res
-        return float(tau), dict(diag)
+    if isinstance(res, tuple):
+        if len(res) == 2:
+            tau, diag = res
+            return float(cast(Any, tau)), dict(cast(Any, diag))
+        raise TypeError(f"Unexpected tuple return from apply_tau_policy: {res!r}")
 
-    # dataclass-like
-    if hasattr(res, "tau"):
-        tau = float(res.tau)
+    tau_attr = getattr(res, "tau", None)
+    if tau_attr is not None:
         diag = getattr(res, "diagnostics", {})
-        return tau, dict(diag or {})
+        return float(cast(Any, tau_attr)), dict(cast(Any, diag) or {})
 
     # scalar
-    return float(res), {}
+    return float(cast(Any, res)), {}
 
 
 def _unpack_hr_result(res: Any) -> tuple[float, float, dict]:
@@ -290,6 +291,7 @@ def test_default_tau_policy_smoke():
     y = np.array([10.0, 12.0, 8.0, 9.0])
     yhat = np.array([9.0, 11.0, 8.0, 10.0])
 
-    tau, diag = _unpack_tau_result(apply_tau_policy(y=y, yhat=yhat, policy=DEFAULT_TAU_POLICY))
+    policy = cast(TauPolicy, DEFAULT_TAU_POLICY)
+    tau, diag = _unpack_tau_result(apply_tau_policy(y=y, yhat=yhat, policy=policy))
     assert np.isfinite(tau) or np.isnan(tau)
     assert isinstance(diag, dict)
