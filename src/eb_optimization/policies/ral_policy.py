@@ -174,6 +174,38 @@ class RALBands:
 
 
 @dataclass(frozen=True)
+class RALBandThresholds:
+    """Canonical two-band thresholds artifact.
+
+    This is the same concept as :class:`~eb_optimization.policies.ral_policy.RALBands`,
+    but exposed as a named artifact for the canonical "learn thresholds + deltas"
+    RAL approach (Option E).
+
+    mid
+        Lower bound for the mid-risk region (inclusive).
+    high
+        Lower bound for the high-risk region (inclusive).
+
+    Notes
+    -----
+    - `high` must be >= `mid`.
+    - Thresholds are assumed to be non-negative. (Many domains normalize to [0, 1],
+      but we do not hard-cap at 1.0 to allow safe usage when values can exceed 1.)
+    """
+
+    mid: float = 0.75
+    high: float = 0.85
+
+    def __post_init__(self) -> None:
+        if self.mid < 0.0:
+            raise ValueError("thresholds.mid must be non-negative.")
+        if self.high < 0.0:
+            raise ValueError("thresholds.high must be non-negative.")
+        if self.high < self.mid:
+            raise ValueError("thresholds.high must be >= thresholds.mid.")
+
+
+@dataclass(frozen=True)
 class RALDeltas:
     """Two-band additive deltas for a two-band RAL policy."""
 
@@ -332,6 +364,186 @@ class RALTwoBandPolicy:
             }
 
         return cls(bands=bands, global_deltas=global_deltas, per_key_deltas=per_out)
+
+
+@dataclass(frozen=True)
+class RALThresholdTwoBandPolicy:
+    r"""Canonical RAL policy artifact: learnable thresholds + additive deltas (Option E).
+
+    This policy generalizes :class:`~eb_optimization.policies.ral_policy.RALTwoBandPolicy`
+    by allowing *both* thresholds and deltas to be specified globally and overridden
+    per-key (e.g., per interface).
+
+    Application (for each row) uses the thresholds for the row's key (or global):
+      - add d_high when yhat >= high
+      - add d_mid  when mid <= yhat < high
+
+    Notes
+    -----
+    - This is still a *policy artifact*, not an optimizer.
+    - Guardrails (like min tail count) should be enforced by the tuner that produces it.
+    """
+
+    global_thresholds: RALBandThresholds = field(default_factory=RALBandThresholds)
+    global_deltas: RALDeltas = field(default_factory=RALDeltas)
+
+    per_key_thresholds: dict[str, RALBandThresholds] | None = None
+    per_key_deltas: dict[str, RALDeltas] | None = None
+
+    def get_thresholds(self, key: str | None = None) -> RALBandThresholds:
+        """Return thresholds for a key (or the global thresholds if none/unknown)."""
+        if key is None or self.per_key_thresholds is None:
+            return self.global_thresholds
+        return self.per_key_thresholds.get(key, self.global_thresholds)
+
+    def get_deltas(self, key: str | None = None) -> RALDeltas:
+        """Return deltas for a key (or the global deltas if none/unknown)."""
+        if key is None or self.per_key_deltas is None:
+            return self.global_deltas
+        return self.per_key_deltas.get(key, self.global_deltas)
+
+    def adjust_forecast(
+        self,
+        df: pd.DataFrame,
+        forecast_col: str,
+        *,
+        key_col: str | None = None,
+    ) -> pd.Series:
+        """Apply the canonical (threshold + delta) two-band RAL policy.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Input DataFrame containing the forecast to adjust.
+        forecast_col : str
+            Column name containing baseline forecast values.
+        key_col : str, optional
+            Column name containing keys for per-key overrides (e.g., "interface").
+            If omitted, global thresholds and deltas are applied.
+
+        Returns
+        -------
+        pd.Series
+            Adjusted forecast values as a series named "readiness_forecast".
+        """
+        baseline = cast(pd.Series, df[forecast_col])
+        yhat = cast("np.ndarray[Any, np.dtype[np.float64]]", baseline.astype(float).values)
+
+        if key_col is None:
+            thr = self.global_thresholds
+            d = self.global_deltas
+            out = _apply_two_band_additive(yhat, thr.mid, thr.high, d.d_mid, d.d_high)
+            return pd.Series(out, index=df.index, name="readiness_forecast")
+
+        if key_col not in df.columns:
+            raise ValueError(f"key_col '{key_col}' not found in DataFrame.")
+
+        keys = cast(pd.Series, df[key_col]).astype(str).to_numpy()
+        out_all = yhat.copy()
+
+        uniq = np.unique(keys)
+        for k in uniq:
+            mask = keys == k
+            thr = self.get_thresholds(str(k))
+            d = self.get_deltas(str(k))
+            out_all[mask] = _apply_two_band_additive(
+                out_all[mask],
+                thr.mid,
+                thr.high,
+                d.d_mid,
+                d.d_high,
+            )
+
+        return pd.Series(out_all, index=df.index, name="readiness_forecast")
+
+    def transform(
+        self,
+        df: pd.DataFrame,
+        forecast_col: str,
+        *,
+        key_col: str | None = None,
+    ) -> pd.DataFrame:
+        """Transform the input DataFrame by applying the forecast adjustment."""
+        df_copy = df.copy()
+        df_copy["readiness_forecast"] = self.adjust_forecast(df_copy, forecast_col, key_col=key_col)
+        return df_copy
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-friendly dict."""
+        per_thr: dict[str, dict[str, float]] | None = None
+        if self.per_key_thresholds is not None:
+            per_thr = {
+                k: {"mid": v.mid, "high": v.high} for k, v in self.per_key_thresholds.items()
+            }
+
+        per_del: dict[str, dict[str, float]] | None = None
+        if self.per_key_deltas is not None:
+            per_del = {
+                k: {"d_mid": v.d_mid, "d_high": v.d_high} for k, v in self.per_key_deltas.items()
+            }
+
+        return {
+            "global_thresholds": {
+                "mid": float(self.global_thresholds.mid),
+                "high": float(self.global_thresholds.high),
+            },
+            "global_deltas": {
+                "d_mid": float(self.global_deltas.d_mid),
+                "d_high": float(self.global_deltas.d_high),
+            },
+            "per_key_thresholds": per_thr,
+            "per_key_deltas": per_del,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> RALThresholdTwoBandPolicy:
+        """Deserialize from a dict produced by `to_dict()`."""
+        g_thr = cast(dict[str, Any], d.get("global_thresholds", {}))
+        g_del = cast(dict[str, Any], d.get("global_deltas", {}))
+
+        global_thresholds = RALBandThresholds(
+            mid=float(g_thr.get("mid", 0.75)),
+            high=float(g_thr.get("high", 0.85)),
+        )
+        global_deltas = RALDeltas(
+            d_mid=float(g_del.get("d_mid", 0.0)),
+            d_high=float(g_del.get("d_high", 0.0)),
+        )
+
+        per_thr_in = d.get("per_key_thresholds")
+        per_thr_out: dict[str, RALBandThresholds] | None
+        if per_thr_in is None:
+            per_thr_out = None
+        else:
+            tbl = cast(dict[str, Any], per_thr_in)
+            per_thr_out = {
+                str(k): RALBandThresholds(
+                    mid=float(cast(dict[str, Any], v)["mid"]),
+                    high=float(cast(dict[str, Any], v)["high"]),
+                )
+                for k, v in tbl.items()
+            }
+
+        per_del_in = d.get("per_key_deltas")
+        per_del_out: dict[str, RALDeltas] | None
+        if per_del_in is None:
+            per_del_out = None
+        else:
+            tbl2 = cast(dict[str, Any], per_del_in)
+            per_del_out = {
+                str(k): RALDeltas(
+                    d_mid=float(cast(dict[str, Any], v)["d_mid"]),
+                    d_high=float(cast(dict[str, Any], v)["d_high"]),
+                )
+                for k, v in tbl2.items()
+            }
+
+        return cls(
+            global_thresholds=global_thresholds,
+            global_deltas=global_deltas,
+            per_key_thresholds=per_thr_out,
+            per_key_deltas=per_del_out,
+        )
 
 
 def _apply_two_band_additive(

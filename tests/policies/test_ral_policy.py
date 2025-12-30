@@ -5,8 +5,10 @@ import pandas as pd
 import pytest
 
 from eb_optimization.policies.ral_policy import (
+    RALBandThresholds,
     RALDeltas,
     RALPolicy,
+    RALThresholdTwoBandPolicy,
     RALTwoBandPolicy,
 )
 
@@ -148,3 +150,135 @@ def test_two_band_policy_missing_key_col_raises():
 
     with pytest.raises(ValueError):
         policy.adjust_forecast(df, "yhat", key_col="interface")
+
+
+def test_threshold_two_band_policy_global_adjustment():
+    df = pd.DataFrame({"yhat": [0.69, 0.70, 0.83, 0.84, 0.88]})
+    policy = RALThresholdTwoBandPolicy(
+        global_thresholds=RALBandThresholds(mid=0.70, high=0.84),
+        global_deltas=RALDeltas(d_mid=0.02, d_high=0.01),
+    )
+
+    out = policy.adjust_forecast(df, "yhat")
+
+    # mid: >=0.70 and <0.84 gets +0.02; high: >=0.84 gets +0.01
+    expected = np.array([0.69, 0.72, 0.85, 0.85, 0.89], dtype=float)
+    assert out.name == "readiness_forecast"
+    np.testing.assert_allclose(out.to_numpy(dtype=float), expected, rtol=0.0, atol=1e-12)
+
+
+def test_threshold_two_band_policy_per_key_thresholds_and_deltas_with_fallback():
+    df = pd.DataFrame(
+        {
+            "interface": ["A", "A", "B", "B", "C", "C"],
+            "yhat": [0.74, 0.86, 0.76, 0.86, 0.76, 0.86],
+        }
+    )
+
+    policy = RALThresholdTwoBandPolicy(
+        global_thresholds=RALBandThresholds(mid=0.75, high=0.85),
+        global_deltas=RALDeltas(d_mid=0.01, d_high=0.01),
+        per_key_thresholds={
+            # A: make high band start earlier
+            "A": RALBandThresholds(mid=0.75, high=0.80),
+            # B: make mid band start earlier
+            "B": RALBandThresholds(mid=0.70, high=0.85),
+        },
+        per_key_deltas={
+            "A": RALDeltas(d_mid=0.02, d_high=0.00),  # A: stronger mid, no high
+            "B": RALDeltas(d_mid=0.00, d_high=0.02),  # B: no mid, stronger high
+        },
+    )
+
+    out = policy.adjust_forecast(df, "yhat", key_col="interface").to_numpy(dtype=float)
+
+    # A thresholds: mid=0.75, high=0.80; deltas: d_mid=0.02, d_high=0.00
+    #   0.74 -> low => 0.74
+    #   0.86 -> high => +0.00 => 0.86
+    #
+    # B thresholds: mid=0.70, high=0.85; deltas: d_mid=0.00, d_high=0.02
+    #   0.76 -> mid => +0.00 => 0.76
+    #   0.86 -> high => +0.02 => 0.88
+    #
+    # C fallback: global thresholds mid=0.75 high=0.85, global deltas +0.01/+0.01
+    #   0.76 -> mid => +0.01 => 0.77
+    #   0.86 -> high => +0.01 => 0.87
+    expected = np.array([0.74, 0.86, 0.76, 0.88, 0.77, 0.87], dtype=float)
+    np.testing.assert_allclose(out, expected, rtol=0.0, atol=1e-12)
+
+
+def test_threshold_two_band_policy_missing_key_col_raises():
+    df = pd.DataFrame({"yhat": [0.8]})
+    policy = RALThresholdTwoBandPolicy(
+        global_thresholds=RALBandThresholds(mid=0.75, high=0.85),
+        global_deltas=RALDeltas(d_mid=0.01, d_high=0.01),
+    )
+
+    with pytest.raises(ValueError):
+        policy.adjust_forecast(df, "yhat", key_col="interface")
+
+
+def test_threshold_two_band_policy_serialization_roundtrip():
+    policy = RALThresholdTwoBandPolicy(
+        global_thresholds=RALBandThresholds(mid=0.70, high=0.84),
+        global_deltas=RALDeltas(d_mid=0.02, d_high=0.01),
+        per_key_thresholds={"A": RALBandThresholds(mid=0.72, high=0.82)},
+        per_key_deltas={"A": RALDeltas(d_mid=0.03, d_high=0.00)},
+    )
+
+    d = policy.to_dict()
+    restored = RALThresholdTwoBandPolicy.from_dict(d)
+
+    assert restored.global_thresholds.mid == policy.global_thresholds.mid
+    assert restored.global_thresholds.high == policy.global_thresholds.high
+    assert restored.global_deltas.d_mid == policy.global_deltas.d_mid
+    assert restored.global_deltas.d_high == policy.global_deltas.d_high
+
+    # Narrow optionals for pyright before subscripting.
+    restored_thresholds = restored.per_key_thresholds
+    restored_deltas = restored.per_key_deltas
+    policy_thresholds = policy.per_key_thresholds
+    policy_deltas = policy.per_key_deltas
+
+    assert restored_thresholds is not None
+    assert restored_deltas is not None
+    assert policy_thresholds is not None
+    assert policy_deltas is not None
+
+    assert restored_thresholds["A"].mid == policy_thresholds["A"].mid
+    assert restored_thresholds["A"].high == policy_thresholds["A"].high
+    assert restored_deltas["A"].d_mid == policy_deltas["A"].d_mid
+    assert restored_deltas["A"].d_high == policy_deltas["A"].d_high
+
+
+def test_threshold_two_band_policy_picklable():
+    policy = RALThresholdTwoBandPolicy(
+        global_thresholds=RALBandThresholds(mid=0.70, high=0.84),
+        global_deltas=RALDeltas(d_mid=0.02, d_high=0.01),
+        per_key_thresholds={"A": RALBandThresholds(mid=0.72, high=0.82)},
+        per_key_deltas={"A": RALDeltas(d_mid=0.03, d_high=0.00)},
+    )
+
+    serialized = pickle.dumps(policy)
+    restored = pickle.loads(serialized)  # nosec
+
+    assert restored.global_thresholds.mid == policy.global_thresholds.mid
+    assert restored.global_thresholds.high == policy.global_thresholds.high
+    assert restored.global_deltas.d_mid == policy.global_deltas.d_mid
+    assert restored.global_deltas.d_high == policy.global_deltas.d_high
+
+    # Narrow optionals for pyright before subscripting.
+    restored_thresholds = restored.per_key_thresholds
+    restored_deltas = restored.per_key_deltas
+    policy_thresholds = policy.per_key_thresholds
+    policy_deltas = policy.per_key_deltas
+
+    assert restored_thresholds is not None
+    assert restored_deltas is not None
+    assert policy_thresholds is not None
+    assert policy_deltas is not None
+
+    assert restored_thresholds["A"].mid == policy_thresholds["A"].mid
+    assert restored_thresholds["A"].high == policy_thresholds["A"].high
+    assert restored_deltas["A"].d_mid == policy_deltas["A"].d_mid
+    assert restored_deltas["A"].d_high == policy_deltas["A"].d_high
