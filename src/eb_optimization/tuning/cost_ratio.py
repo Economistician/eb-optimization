@@ -126,6 +126,24 @@ class CostRatioEstimate:
         - "over_cost_const": float
         - "min_gap": float
         - "degenerate_perfect_forecast": bool
+        - "rel_min_gap": float
+        - "grid_sensitivity": dict[str, float]
+        - "grid_instability_log": float
+        - "identifiability_thresholds": dict[str, float]
+        - "is_identifiable": bool
+    rel_min_gap
+        Relative imbalance at the chosen point: min_gap / over_cost_const (or inf if
+        over_cost_const==0 and min_gap>0). This is a *cost-separation* diagnostic.
+    R_min
+        Minimum R_star across built-in grid perturbations (base/exclude/shift).
+    R_max
+        Maximum R_star across built-in grid perturbations (base/exclude/shift).
+    grid_instability_log
+        log(R_max / R_min) across built-in perturbations. This is a *grid-sensitivity*
+        diagnostic capturing weak identifiability due to discretization.
+    is_identifiable
+        Boolean summary derived from conservative thresholds on rel_min_gap and
+        grid_instability_log. This does not change selection; it only reports stability.
     curve
         Sensitivity curve / diagnostics for each candidate ratio.
         Columns are:
@@ -142,6 +160,11 @@ class CostRatioEstimate:
     selection: str
     tie_break: str
     diagnostics: dict[str, Any]
+    rel_min_gap: float
+    R_min: float
+    R_max: float
+    grid_instability_log: float
+    is_identifiable: bool
     curve: pd.DataFrame
 
 
@@ -270,6 +293,7 @@ def estimate_R_cost_balance(
         If ``return_curve=True``, returns a CostRatioEstimate with:
         - R_star
         - method, n, grid, selection, tie_break, diagnostics
+        - rel_min_gap, R_min, R_max, grid_instability_log, is_identifiable
         - curve : pd.DataFrame with columns [R, under_cost, over_cost, gap]
 
         Tie-breaking:
@@ -322,6 +346,48 @@ def estimate_R_cost_balance(
         gap = abs(under_cost - over_cost_const)
         return under_cost, over_cost_const, gap
 
+    def _select_R_from_curve(curve_df: pd.DataFrame, grid: np.ndarray) -> float:
+        if selection == "curve":
+            idx = int(np.argmin(curve_df["gap"].to_numpy()))
+            return float(curve_df["R"].to_numpy()[idx])
+
+        r_vals = curve_df["R"].to_numpy()
+        gap_vals = curve_df["gap"].to_numpy()
+        idx_map = {float(r): i for i, r in enumerate(r_vals.tolist())}
+
+        def _gap_for_R(R: float, *, _gap_vals=gap_vals, _idx_map=idx_map) -> float:
+            return float(_gap_vals[_idx_map[float(R)]])
+
+        best_R, _best_gap = argmin_over_candidates(
+            candidates=grid,
+            score_fn=_gap_for_R,
+            tie_break="first",
+        )
+        return float(best_R)
+
+    def _run_on_grid(grid: np.ndarray) -> float:
+        # Build curve for this grid and select R* with consistent tie-breaking.
+        under_list: list[float] = []
+        gap_list: list[float] = []
+        for R in grid:
+            u, _o, g = _compute_under_over_gap(float(R))
+            under_list.append(u)
+            gap_list.append(g)
+
+        curve_df = pd.DataFrame(
+            {
+                "R": grid.astype(float),
+                "under_cost": np.asarray(under_list, dtype=float),
+                "over_cost": np.full(shape=grid.shape, fill_value=over_cost_const, dtype=float),
+                "gap": np.asarray(gap_list, dtype=float),
+            }
+        )
+        return _select_R_from_curve(curve_df, grid)
+
+    # Conservative identifiability thresholds (reporting only; does not change selection)
+    rel_gap_threshold = 0.05
+    log_instability_threshold = float(np.log(1.25))
+
     # Degenerate case: perfect forecast (no error anywhere)
     if np.all(shortfall == 0.0) and np.all(overbuild == 0.0):
         idx = int(np.argmin(np.abs(positive_R - 1.0)))
@@ -339,10 +405,29 @@ def estimate_R_cost_balance(
             }
         )
 
+        min_gap = 0.0
+        rel_min_gap = 0.0
+        R_min = R_star
+        R_max = R_star
+        grid_instability_log = 0.0
+        is_identifiable = True
+
         diagnostics: dict[str, Any] = {
             "over_cost_const": 0.0,
             "min_gap": 0.0,
             "degenerate_perfect_forecast": True,
+            "rel_min_gap": float(rel_min_gap),
+            "grid_sensitivity": {
+                "base": float(R_star),
+                "exclude_pivot": float(R_star),
+                "shifted": float(R_star),
+            },
+            "grid_instability_log": float(grid_instability_log),
+            "identifiability_thresholds": {
+                "rel_gap_threshold": float(rel_gap_threshold),
+                "log_instability_threshold": float(log_instability_threshold),
+            },
+            "is_identifiable": bool(is_identifiable),
         }
 
         return CostRatioEstimate(
@@ -353,71 +438,114 @@ def estimate_R_cost_balance(
             selection=str(selection),
             tie_break="first",
             diagnostics=diagnostics,
+            rel_min_gap=float(rel_min_gap),
+            R_min=float(R_min),
+            R_max=float(R_max),
+            grid_instability_log=float(grid_instability_log),
+            is_identifiable=bool(is_identifiable),
             curve=curve,
         )
 
-    # Build sensitivity curve (diagnostics) once
-    under_list: list[float] = []
-    gap_list: list[float] = []
+    # Build sensitivity curve (diagnostics) once for the base grid
+    under_list_base: list[float] = []
+    gap_list_base: list[float] = []
 
     for R in positive_R:
         u, _o, g = _compute_under_over_gap(float(R))
-        under_list.append(u)
-        gap_list.append(g)
+        under_list_base.append(u)
+        gap_list_base.append(g)
 
     curve = pd.DataFrame(
         {
             "R": positive_R.astype(float),
-            "under_cost": np.asarray(under_list, dtype=float),
+            "under_cost": np.asarray(under_list_base, dtype=float),
             "over_cost": np.full(shape=positive_R.shape, fill_value=over_cost_const, dtype=float),
-            "gap": np.asarray(gap_list, dtype=float),
+            "gap": np.asarray(gap_list_base, dtype=float),
         }
     )
 
-    # Select R* using the requested strategy
-    if selection == "curve":
-        # NumPy argmin is deterministic and returns the first occurrence on ties
-        idx = int(np.argmin(curve["gap"].to_numpy()))
-        R_star = float(curve["R"].to_numpy()[idx])
-    else:
-        # Kernel-based selection using curve-derived gap scores
-        r_vals = curve["R"].to_numpy()
-        gap_vals = curve["gap"].to_numpy()
-
-        # Build a direct index map to avoid per-candidate np.where lookups.
-        idx_map = {float(r): i for i, r in enumerate(r_vals.tolist())}
-
-        def _gap_for_R(R: float, *, _gap_vals=gap_vals, _idx_map=idx_map) -> float:
-            return float(_gap_vals[_idx_map[float(R)]])
-
-        best_R, _best_gap = argmin_over_candidates(
-            candidates=positive_R,
-            score_fn=_gap_for_R,
-            tie_break="first",  # preserves prior behavior
-        )
-        R_star = float(best_R)
+    # Select R* using the requested strategy on the base curve/grid
+    R_star = _select_R_from_curve(curve, positive_R)
 
     if return_curve:
         min_gap = float(curve.loc[curve["R"] == R_star, "gap"].iloc[0])
+
+        if over_cost_const > 0.0:
+            rel_min_gap = float(min_gap / over_cost_const)
+        else:
+            rel_min_gap = 0.0 if min_gap == 0.0 else float("inf")
+
+        # -----------------------------------------------------------------
+        # Grid sensitivity diagnostics (built-in perturbations)
+        # -----------------------------------------------------------------
+        # 1) Exclude pivot: remove the candidate closest to 1.0 (if possible).
+        if positive_R.size >= 2:
+            pivot_idx = int(np.argmin(np.abs(positive_R - 1.0)))
+            grid_exclude = np.delete(positive_R, pivot_idx)
+            R_exclude = _run_on_grid(grid_exclude)
+        else:
+            R_exclude = R_star
+
+        # 2) Shifted grid: apply a half-step shift in log space based on the grid's median spacing.
+        if positive_R.size >= 2:
+            sorted_R = np.sort(positive_R.astype(float))
+            log_sorted = np.log(sorted_R)
+            deltas = np.diff(log_sorted)
+            median_delta = float(np.median(deltas)) if deltas.size > 0 else 0.0
+            shift = 0.5 * median_delta
+            factor = float(np.exp(shift))
+            grid_shifted = (positive_R.astype(float) * factor).astype(float)
+            # Ensure strictly positive candidates (should be, but keep it explicit)
+            grid_shifted = grid_shifted[grid_shifted > 0]
+            R_shifted = R_star if grid_shifted.size == 0 else _run_on_grid(grid_shifted)
+        else:
+            R_shifted = R_star
+
+        R_min = float(min(R_star, R_exclude, R_shifted))
+        R_max = float(max(R_star, R_exclude, R_shifted))
+
+        grid_instability_log = float(np.log(R_max) - np.log(R_min)) if R_min > 0.0 else 0.0
+
+        is_identifiable = bool(
+            (grid_instability_log <= log_instability_threshold)
+            and (rel_min_gap <= rel_gap_threshold)
+        )
 
         diagnostics = {
             "over_cost_const": float(over_cost_const),
             "min_gap": float(min_gap),
             "degenerate_perfect_forecast": False,
+            "rel_min_gap": float(rel_min_gap),
+            "grid_sensitivity": {
+                "base": float(R_star),
+                "exclude_pivot": float(R_exclude),
+                "shifted": float(R_shifted),
+            },
+            "grid_instability_log": float(grid_instability_log),
+            "identifiability_thresholds": {
+                "rel_gap_threshold": float(rel_gap_threshold),
+                "log_instability_threshold": float(log_instability_threshold),
+            },
+            "is_identifiable": bool(is_identifiable),
         }
 
         return CostRatioEstimate(
-            R_star=R_star,
+            R_star=float(R_star),
             method="cost_balance",
             n=int(y_true_arr.shape[0]),
             grid=positive_R.astype(float),
             selection=str(selection),
             tie_break="first",
             diagnostics=diagnostics,
+            rel_min_gap=float(rel_min_gap),
+            R_min=float(R_min),
+            R_max=float(R_max),
+            grid_instability_log=float(grid_instability_log),
+            is_identifiable=bool(is_identifiable),
             curve=curve,
         )
 
-    return R_star
+    return float(R_star)
 
 
 # ---------------------------------------------------------------------

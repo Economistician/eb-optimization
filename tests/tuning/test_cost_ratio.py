@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from eb_optimization.tuning.cost_ratio import (
+    CostRatioEstimate,
     EntityCostRatioEstimate,
     estimate_entity_R_from_balance,
     estimate_R_cost_balance,
@@ -157,6 +158,108 @@ def test_estimate_R_cost_balance_raises_on_invalid_R_grid():
             R_grid=(0.0, -1.0),
             co=1.0,
         )
+
+
+def test_estimate_R_cost_balance_return_curve_artifact_includes_stability_diagnostics():
+    """
+    When return_curve=True, we should get an artifact that contains:
+    - base curve
+    - rel_min_gap
+    - grid sensitivity summary (base / exclude_pivot / shifted)
+    - grid_instability_log and range bounds
+    - is_identifiable boolean
+
+    These are reporting-only diagnostics and should not change selection.
+    """
+    # Non-degenerate toy example (both shortfall and overbuild present)
+    y_true = np.array([10.0, 0.0, 5.0])
+    y_pred = np.array([0.0, 20.0, 7.0])  # shortfall=10, overbuild=20+2
+
+    grid = (0.5, 1.0, 2.0, 3.0)
+
+    est = estimate_R_cost_balance(
+        y_true=y_true,
+        y_pred=y_pred,
+        R_grid=grid,
+        co=1.0,
+        return_curve=True,
+        selection="curve",
+    )
+
+    # Pyright cannot narrow return type from return_curve=True without overloads.
+    # Narrow explicitly for static typing.
+    assert isinstance(est, CostRatioEstimate)
+
+    # Artifact shape
+    assert hasattr(est, "R_star")
+    assert hasattr(est, "curve")
+    assert hasattr(est, "rel_min_gap")
+    assert hasattr(est, "R_min")
+    assert hasattr(est, "R_max")
+    assert hasattr(est, "grid_instability_log")
+    assert hasattr(est, "is_identifiable")
+    assert isinstance(est.curve, pd.DataFrame)
+
+    # Curve columns
+    assert {"R", "under_cost", "over_cost", "gap"}.issubset(est.curve.columns)
+
+    # Diagnostics sanity
+    assert np.isfinite(float(est.rel_min_gap)) or np.isinf(float(est.rel_min_gap))
+    assert float(est.grid_instability_log) >= 0.0
+    assert float(est.R_min) > 0.0
+    assert float(est.R_max) > 0.0
+    assert float(est.R_min) <= float(est.R_star) <= float(est.R_max)
+    assert isinstance(bool(est.is_identifiable), bool)
+
+    # Diagnostics payload should include grid_sensitivity keys
+    diag = est.diagnostics
+    assert isinstance(diag, dict)
+    assert "grid_sensitivity" in diag
+    gs = diag["grid_sensitivity"]
+    assert isinstance(gs, dict)
+    assert {"base", "exclude_pivot", "shifted"}.issubset(gs.keys())
+
+    # Ensure base matches R_star
+    assert np.isclose(float(gs["base"]), float(est.R_star))
+
+
+def test_estimate_R_cost_balance_return_curve_perfect_forecast_is_identifiable_and_zero_instability():
+    """
+    Perfect forecast case should:
+    - choose the grid value closest to 1.0
+    - have zero min_gap / rel_min_gap
+    - have zero grid_instability_log (all perturbations agree)
+    - be identifiable
+    """
+    y_true = [10, 20, 30]
+    y_pred = [10, 20, 30]
+    grid = (0.4, 0.9, 1.3, 3.0)
+
+    est = estimate_R_cost_balance(
+        y_true=y_true,
+        y_pred=y_pred,
+        R_grid=grid,
+        co=1.0,
+        return_curve=True,
+        selection="curve",
+    )
+
+    # Narrow explicitly for static typing.
+    assert isinstance(est, CostRatioEstimate)
+
+    assert np.isclose(float(est.R_star), 0.9)
+    assert np.isclose(float(est.rel_min_gap), 0.0)
+    assert np.isclose(float(est.grid_instability_log), 0.0)
+    assert est.is_identifiable is True
+
+    diag = est.diagnostics
+    assert isinstance(diag, dict)
+    assert diag["degenerate_perfect_forecast"] is True
+    assert "grid_sensitivity" in diag
+    gs = diag["grid_sensitivity"]
+    assert np.isclose(float(gs["base"]), float(est.R_star))
+    assert np.isclose(float(gs["exclude_pivot"]), float(est.R_star))
+    assert np.isclose(float(gs["shifted"]), float(est.R_star))
 
 
 # =============================================================================
