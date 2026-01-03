@@ -23,6 +23,8 @@ from numpy.typing import ArrayLike
 import pandas as pd
 
 from eb_optimization.tuning.cost_ratio import (
+    CostRatioEstimate,
+    EntityCostRatioEstimate,
     estimate_entity_R_from_balance,
     estimate_R_cost_balance,
 )
@@ -74,27 +76,56 @@ def apply_cost_ratio_policy(
 ) -> tuple[float, dict[str, Any]]:
     """
     Apply a frozen cost-ratio policy to estimate a global R.
+
+    Notes
+    -----
+    This policy boundary surfaces identifiability / stability diagnostics when available.
+    It does NOT change the selection behavior; it only enriches the returned diagnostics.
     """
     co_val = policy.co if co is None else co
 
-    # Use Any as an intermediate to satisfy the 'ConvertibleToFloat' protocol
-    R_raw: Any = estimate_R_cost_balance(
+    # Request the richer artifact so we can surface identifiability at the policy boundary.
+    est_any: Any = estimate_R_cost_balance(
         y_true=y_true,
         y_pred=y_pred,
         R_grid=policy.R_grid,
         co=co_val,
         sample_weight=sample_weight,
+        return_curve=True,
+        selection="curve",
     )
-    R = float(R_raw)
+
+    # Backward safety: if something upstream returns a float anyway, keep working.
+    if isinstance(est_any, CostRatioEstimate):
+        est = est_any
+        R = float(est.R_star)
+        stability_diag: dict[str, Any] = {
+            # Policy-surfaced stability fields (governance/reporting only)
+            "rel_min_gap": float(est.rel_min_gap),
+            "R_min": float(est.R_min),
+            "R_max": float(est.R_max),
+            "grid_instability_log": float(est.grid_instability_log),
+            "is_identifiable": bool(est.is_identifiable),
+            # Full tuning diagnostics (already JSON-serializable by convention)
+            "calibration_diagnostics": dict(est.diagnostics),
+        }
+    else:
+        R = float(est_any)
+        stability_diag = {
+            "calibration_diagnostics": {
+                "note": "Upstream returned a scalar R; stability diagnostics unavailable.",
+            }
+        }
 
     diag: dict[str, Any] = {
         "method": "cost_balance",
         "R_grid": [float(x) for x in policy.R_grid],
         "co_is_array": isinstance(co_val, list | tuple | np.ndarray | pd.Series),
         "co_default_used": co is None,
-        "R": R,
+        "R": float(R),
+        **stability_diag,
     }
-    return (R, diag)
+    return (float(R), diag)
 
 
 def apply_entity_cost_ratio_policy(
@@ -110,6 +141,15 @@ def apply_entity_cost_ratio_policy(
 ) -> pd.DataFrame:
     """
     Apply a frozen cost-ratio policy per entity.
+
+    Notes
+    -----
+    This policy boundary now surfaces per-entity calibration diagnostics (in the
+    `diagnostics` column) for eligible entities when `include_diagnostics=True`.
+
+    Identifiability (rel_min_gap / grid_instability_log / is_identifiable) is currently
+    implemented for *global* R calibration in tuning/cost_ratio.py. Entity-level
+    identifiability can be added later without changing this policy surface.
     """
     # ---- validation: columns ----
     required_cols = {entity_col, y_true_col, y_pred_col}
@@ -143,7 +183,8 @@ def apply_entity_cost_ratio_policy(
     results_list: list[pd.DataFrame] = []
 
     if not eligible_df.empty:
-        tuned_raw: Any = estimate_entity_R_from_balance(
+        # Use artifact mode so we can surface per-entity diagnostics at the policy boundary.
+        tuned_any: Any = estimate_entity_R_from_balance(
             df=eligible_df,
             entity_col=entity_col,
             y_true_col=y_true_col,
@@ -151,10 +192,33 @@ def apply_entity_cost_ratio_policy(
             ratios=policy.R_grid,
             co=co_val,
             sample_weight_col=sample_weight_col,
+            return_result=True,
+            selection="curve",
         )
-        tuned = cast(pd.DataFrame, tuned_raw).copy()
+        tuned_art = cast(EntityCostRatioEstimate, tuned_any)
+
+        tuned_table = cast(pd.DataFrame, tuned_art.table).copy()
+
+        # Normalize artifact table into the legacy-ish policy output schema.
+        # (This preserves existing downstream expectations while adding richer diagnostics.)
+        tuned = pd.DataFrame(
+            {
+                entity_col: tuned_table[entity_col],
+                "R": tuned_table["R_star"].astype(float),
+                "cu": (tuned_table["R_star"].astype(float) * float(co_val)).astype(float),
+                "co": float(co_val),
+                "under_cost": tuned_table["under_cost"].astype(float),
+                "over_cost": tuned_table["over_cost"].astype(float),
+                "diff": tuned_table["gap"].astype(float),
+            }
+        )
+
+        # Add diagnostics column (policy boundary surfacing).
+        if include_diagnostics and "diagnostics" in tuned_table.columns:
+            tuned["diagnostics"] = tuned_table["diagnostics"]
 
         tuned["reason"] = None
+
         # Explicit mapping: use Any bridge to satisfy Pyright's strict 'map' signature
         mapper: Any = counts_ser
         tuned["n"] = tuned[entity_col].map(mapper).astype(int)
@@ -172,6 +236,10 @@ def apply_entity_cost_ratio_policy(
             diff=np.nan,
             reason=f"min_n_not_met(<{policy.min_n})",
         )
+
+        if include_diagnostics:
+            ineligible_rows["diagnostics"] = None
+
         mapper_ineligible: Any = counts_ser
         ineligible_rows["n"] = ineligible_rows[entity_col].map(mapper_ineligible).astype(int)
         results_list.append(ineligible_rows)
@@ -189,12 +257,18 @@ def apply_entity_cost_ratio_policy(
             "over_cost",
             "diff",
         ]
+        if include_diagnostics:
+            schema_cols.append("diagnostics")
+
         # Resolution for Error 187: Wrap list in pd.Index to satisfy the 'Axes' requirement
         return pd.DataFrame(columns=pd.Index(schema_cols))
 
     out = pd.concat(results_list, ignore_index=True, sort=False)
 
     base_cols = [entity_col, "R", "cu", "co", "n", "reason"]
+    if include_diagnostics:
+        base_cols.append("diagnostics")
+
     diag_cols = ["under_cost", "over_cost", "diff"]
 
     remaining = [str(c) for c in out.columns if c not in base_cols + diag_cols]

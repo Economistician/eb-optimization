@@ -142,6 +142,60 @@ def test_apply_cost_ratio_policy_returns_nan_safe_diag_when_co_is_array():
     assert diag["co_is_array"] is True
 
 
+def test_apply_cost_ratio_policy_surfaces_identifiability_diagnostics():
+    """
+    Policy boundary should surface identifiability/stability diagnostics coming
+    from tuning/cost_ratio.py (reporting-only; does not change selection).
+    """
+    y_true = np.array([10.0, 0.0, 5.0])
+    y_pred = np.array([0.0, 20.0, 7.0])  # both shortfall and overbuild present
+
+    policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0)
+
+    res = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=1.0)
+    R, diag = _unpack_cost_ratio_result(res)
+
+    assert np.isfinite(R)
+
+    # surfaced scalar diagnostics
+    for k in ("rel_min_gap", "R_min", "R_max", "grid_instability_log", "is_identifiable"):
+        assert k in diag
+
+    assert float(diag["R_min"]) > 0.0
+    assert float(diag["R_max"]) > 0.0
+    assert float(diag["grid_instability_log"]) >= 0.0
+    assert isinstance(bool(diag["is_identifiable"]), bool)
+
+    # surfaced nested tuning diagnostics
+    assert "calibration_diagnostics" in diag
+    cal = diag["calibration_diagnostics"]
+    assert isinstance(cal, dict)
+    assert "grid_sensitivity" in cal
+    gs = cal["grid_sensitivity"]
+    assert isinstance(gs, dict)
+    assert {"base", "exclude_pivot", "shifted"}.issubset(gs.keys())
+
+
+def test_apply_cost_ratio_policy_perfect_forecast_has_zero_instability_and_identifiable():
+    """
+    Perfect forecast case should surface:
+    - rel_min_gap = 0
+    - grid_instability_log = 0
+    - is_identifiable = True
+    """
+    y_true = np.array([10.0, 20.0, 30.0])
+    y_pred = np.array([10.0, 20.0, 30.0])
+
+    policy = CostRatioPolicy(R_grid=(0.4, 0.9, 1.3, 3.0), co=1.0)
+
+    res = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=1.0)
+    _R, diag = _unpack_cost_ratio_result(res)
+
+    assert np.isclose(float(diag["rel_min_gap"]), 0.0)
+    assert np.isclose(float(diag["grid_instability_log"]), 0.0)
+    assert bool(diag["is_identifiable"]) is True
+
+
 # =============================================================================
 # Entity policy application
 # =============================================================================
@@ -266,3 +320,34 @@ def test_apply_entity_cost_ratio_policy_uses_policy_default_co_when_none():
 
     row = out.iloc[0]
     assert np.isclose(float(row["co"]), 2.0)
+
+
+def test_apply_entity_cost_ratio_policy_surfaces_entity_diagnostics_when_enabled():
+    """
+    After surfacing diagnostics at the policy boundary:
+    - eligible entities (meeting min_n) should have a dict in `diagnostics`
+    - ineligible entities should have diagnostics=None (or NaN)
+    """
+    df = _panel_for_entity_tests()
+    policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0, min_n=6)
+
+    out = apply_entity_cost_ratio_policy(
+        df,
+        entity_col="entity",
+        y_true_col="actual_qty",
+        y_pred_col="forecast_qty",
+        policy=policy,
+        include_diagnostics=True,
+    )
+
+    row_a = out.loc[out["entity"] == "A"].iloc[0]
+    row_b = out.loc[out["entity"] == "B"].iloc[0]
+
+    # Ineligible entity: diagnostics should be None/NaN
+    assert "diagnostics" in out.columns
+    assert row_a["diagnostics"] is None or pd.isna(row_a["diagnostics"])
+
+    # Eligible entity: diagnostics should be a dict with expected keys
+    diag_b = row_b["diagnostics"]
+    assert isinstance(diag_b, dict)
+    assert {"over_cost_const", "min_gap", "degenerate_perfect_forecast"}.issubset(diag_b.keys())
