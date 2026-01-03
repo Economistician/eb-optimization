@@ -24,12 +24,14 @@ R directly parameterizes asymmetric loss metrics such as **CWSL (Cost-Weighted S
 
 ## Why R Is Estimated (Not Chosen Arbitrarily)
 
-In many forecasting systems, asymmetry parameters are selected heuristically.
+In many forecasting systems, asymmetry parameters are selected heuristically or embedded implicitly.
 eb-optimization instead provides **data-driven estimation methods** that:
 
 - Reflect observed service behavior
 - Preserve interpretability
-- Can be reproduced, audited, and re-estimated over time
+- Are deterministic and reproducible
+- Surface stability and identifiability diagnostics
+- Can be reviewed, audited, and re-estimated over time
 
 This allows R to function as a *governed decision parameter* rather than a hidden tuning constant.
 
@@ -42,13 +44,14 @@ eb-optimization currently provides **balance-based estimation** strategies.
 ### Balance-Based Estimation
 
 Balance-based estimation selects R such that opposing service errors are balanced according to a target condition
-(e.g., equalized service loss contributions).
+(e.g., equalized cost-weighted service loss).
 
-This approach is:
+Key properties:
 
 - Metric-aligned (directly tied to EB loss functions)
-- Deterministic
+- Deterministic and grid-based
 - Robust to scale differences across entities
+- Produces explicit diagnostic artifacts
 
 ---
 
@@ -59,17 +62,23 @@ This approach is:
 ```python
 from eb_optimization.tuning.cost_ratio import estimate_R_cost_balance
 
-R_estimate = estimate_R_cost_balance(
+est = estimate_R_cost_balance(
     y_true=actuals,
     y_pred=forecasts,
+    return_curve=True,
 )
 ```
 
-This returns a **CostRatioEstimate** object containing:
+This returns a **CostRatioEstimate** artifact containing:
 
-- The estimated R value
-- Diagnostic information about the balance condition
-- Metadata about the estimation procedure
+- `R_star` — selected cost ratio
+- `curve` — evaluated cost-balance curve over the grid
+- `rel_min_gap` — relative imbalance at the optimum
+- `grid_instability_log` — sensitivity to grid perturbation
+- `is_identifiable` — boolean summary flag
+- Additional method and diagnostic metadata
+
+The returned artifact is intended for **inspection and review**, not direct application.
 
 ---
 
@@ -78,36 +87,67 @@ This returns a **CostRatioEstimate** object containing:
 ```python
 from eb_optimization.tuning.cost_ratio import estimate_entity_R_from_balance
 
-entity_estimates = estimate_entity_R_from_balance(
+art = estimate_entity_R_from_balance(
     df=panel_df,
     entity_col="store_id",
-    actual_col="y_true",
-    forecast_col="y_pred",
+    y_true_col="actual",
+    y_pred_col="forecast",
+    return_result=True,
 )
 ```
 
-Entity-level estimation produces one estimate per entity, enabling:
+Entity-level estimation produces an **EntityCostRatioEstimate** artifact with:
 
-- Heterogeneous cost sensitivity
-- Segment-level or store-level policies
-- Downstream aggregation or clipping
+- One calibrated R per eligible entity
+- Per-entity cost curves
+- Per-entity diagnostics
+- Explicit handling of small-sample entities
+
+This enables heterogeneous cost modeling while preserving governance.
+
+---
+
+## Identifiability and Stability Diagnostics
+
+Cost ratio estimation may be **weakly identifiable** when:
+
+- Cost curves are flat near the optimum
+- Multiple grid points achieve similar balance
+- Small grid perturbations change the selected R
+
+To surface this, estimation artifacts include diagnostics such as:
+
+- `rel_min_gap`
+- `grid_instability_log`
+- `R_min` / `R_max`
+- `is_identifiable`
+
+These diagnostics:
+
+- **Do not alter the selected R**
+- Exist purely for governance, reporting, and audit
+- Are later surfaced again at the policy boundary
 
 ---
 
 ## Output Artifacts
 
-Estimation functions return structured records (not raw scalars), typically including:
+Estimation functions return **structured artifacts**, not raw scalars.
 
-- Estimated R value
-- Convergence or balance diagnostics
-- Sample size and coverage metadata
+Artifacts typically include:
 
-These artifacts are intended to be:
+- Selected R values
+- Cost curves
+- Diagnostic summaries
+- Sample size metadata
+- Method identifiers
+
+Artifacts are designed to be:
 
 - Logged
 - Reviewed
-- Serialized if needed
-- Used to construct frozen policies
+- Serialized
+- Converted into frozen policies
 
 ---
 
@@ -115,46 +155,38 @@ These artifacts are intended to be:
 
 Estimates are *not* applied directly.
 
-Instead, estimated values are used to construct a **CostRatioPolicy**:
+Instead, reviewed estimates are frozen into a **CostRatioPolicy**:
 
 ```python
 from eb_optimization.policies.cost_ratio_policy import CostRatioPolicy
 
-policy = CostRatioPolicy(R=R_estimate.R)
+policy = CostRatioPolicy(
+    R_grid=(0.5, 1.0, 2.0, 3.0),
+    co=1.0,
+)
 ```
 
-This separation ensures that:
-
-- Estimation logic is isolated from application logic
-- Policies can be versioned and governed independently
+The policy governs **application**, while tuning governs **estimation**.
 
 ---
 
 ## Best Practices
 
-- Re-estimate R on a fixed cadence (e.g., quarterly)
-- Avoid mixing estimation windows across regime changes
-- Inspect diagnostics before freezing policies
-- Prefer entity-level estimation when sufficient data exists
+- Inspect curves and diagnostics before freezing policies
+- Treat non-identifiable estimates as governance signals
+- Prefer entity-level estimation when data volume permits
+- Re-estimate on a fixed cadence or under regime change
+- Version and document frozen policies
 
 ---
 
 ## Common Pitfalls
 
-- Treating R as a hyperparameter during model training
+- Treating R as a model hyperparameter
 - Estimating R on already policy-adjusted forecasts
-- Ignoring sample size effects for small entities
-- Applying raw estimates without review or clipping
-
----
-
-## Relationship to Other Parameters
-
-- R governs **cost asymmetry**
-- τ governs **service thresholds**
-- RAL governs **readiness adjustments**
-
-These parameters are independent but often calibrated jointly.
+- Ignoring identifiability warnings
+- Applying raw scalars instead of policies
+- Re-estimating R inside evaluation code
 
 ---
 
@@ -166,16 +198,26 @@ You may choose not to estimate R when:
 - Regulatory or contractual constraints dictate asymmetry
 - Data volume is insufficient for stable estimation
 
-In these cases, R may be fixed via policy defaults.
+In these cases, R should be fixed via an explicit policy.
+
+---
+
+## Relationship to Other Parameters
+
+- **R** governs cost asymmetry
+- **τ** governs service thresholds
+- **RAL** governs readiness adjustment
+
+These parameters are independent but often reviewed jointly.
 
 ---
 
 ## Next Steps
 
-- See **Concepts → Policies** for how R is applied
-- See **How-To → Using Policies in eb-evaluation**
+- Review **Concepts → Policies** for application mechanics
+- Review **Concepts → Tuning** for estimation philosophy
 - See **API → Tuning → Cost Ratio** for full reference details
 
 ---
 
-*In Electric Barometer, cost asymmetry is a decision — and decisions deserve data.*
+*In Electric Barometer, cost asymmetry is a decision — and decisions deserve diagnostics.*

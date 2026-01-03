@@ -1,173 +1,193 @@
 # Cost Ratio Tuning (R)
 
-This document provides the **API reference** for cost ratio tuning functionality in
-`eb_optimization.tuning.cost_ratio`.
+This document provides the **API reference** and conceptual framing for cost ratio tuning
+functionality in `eb_optimization.tuning.cost_ratio`.
 
-Cost ratio tuning selects the asymmetric cost parameter **R** used by cost-weighted
-metrics such as CWSL. The API is intentionally narrow, deterministic, and artifact-driven.
+Cost ratio tuning determines the asymmetric cost parameter **R = c_u / c_o** used by
+cost-weighted metrics such as CWSL. In Electric Barometer, tuning is **explicit,
+deterministic, and artifact-driven**.
 
 ---
 
 ## Conceptual Role
 
-Cost ratio tuning determines **how much more costly one class of error is relative to another**.
-It does not compute metrics and does not apply policies.
+Cost ratio tuning answers a single question:
 
-Instead, it:
+> *Given observed forecast errors, what asymmetric cost ratio best reflects the
+> operational balance between under-forecasting and over-forecasting?*
 
-- Evaluates candidate R values against balance criteria
-- Produces structured estimation artifacts
-- Supports both global and entity-level calibration
+It does **not**:
+- Apply costs
+- Modify forecasts
+- Enforce governance
+- Decide how R is used downstream
+
+Those responsibilities belong to policies.
 
 ---
 
-## Public Functions
+## Public APIs
 
 ### `estimate_R_cost_balance`
 
-Estimate a global cost ratio using balance-based criteria.
+Estimate a **global** cost ratio using balance-based criteria.
 
-**Signature**
+#### Signature
 
 ```python
 estimate_R_cost_balance(
     y_true,
     y_pred,
     *,
-    candidate_R=None,
-    **kwargs,
+    R_grid=None,
+    co=1.0,
+    sample_weight=None,
+    return_curve=False,
+    selection="curve",
 )
 ```
 
-**Description**
+#### Description
 
-Selects an R value such that opposing cost-weighted service losses are balanced according
-to a deterministic criterion.
+Evaluates a finite grid of candidate R values and selects the one that best balances
+under-build and over-build cost contributions.
 
-**Parameters**
+Selection is deterministic and governed by explicit tie-breaking rules.
+
+#### Parameters
 
 - `y_true`
-  Actual observed values.
+  Array-like of realized outcomes.
 
 - `y_pred`
-  Forecast values corresponding to `y_true`.
+  Array-like of forecasts aligned with `y_true`.
 
-- `candidate_R` *(optional)*
-  Iterable of candidate R values. If not provided, a documented default grid is used.
+- `R_grid`
+  Explicit candidate grid. If omitted, a documented default grid is used.
 
-**Returns**
+- `co`
+  Over-build cost coefficient. Used only for relative balance; absolute scale cancels.
 
-- `CostRatioEstimate`
-  Structured estimate containing:
-  - Selected R value
-  - Balance diagnostics
-  - Method metadata
+- `sample_weight`
+  Optional weights applied per observation.
+
+- `return_curve`
+  If True, returns a rich artifact with full diagnostics instead of a scalar.
+
+- `selection`
+  Tie-breaking kernel used when multiple candidates are equivalent.
+
+#### Returns
+
+- `float` (legacy mode), or
+- `CostRatioEstimate` artifact when `return_curve=True`
 
 ---
 
 ### `estimate_entity_R_from_balance`
 
-Estimate cost ratios per entity.
+Estimate **per-entity** cost ratios from panel data.
 
-**Signature**
+#### Signature
 
 ```python
 estimate_entity_R_from_balance(
     df,
     *,
     entity_col,
-    actual_col,
-    forecast_col,
-    candidate_R=None,
-    **kwargs,
+    y_true_col,
+    y_pred_col,
+    ratios=None,
+    co=1.0,
+    sample_weight_col=None,
+    return_result=False,
+    selection="curve",
 )
 ```
 
-**Description**
+#### Description
 
-Computes one cost ratio estimate per entity using balance-based selection.
+Applies balance-based cost ratio estimation independently for each entity in the panel.
 
-**Parameters**
+Entities are evaluated independently but under a shared candidate grid and selection
+kernel.
 
-- `df`
-  Panel DataFrame containing actuals and forecasts.
+#### Returns
 
-- `entity_col`
-  Column identifying entities (e.g., store, region).
-
-- `actual_col`
-  Column containing actual values.
-
-- `forecast_col`
-  Column containing forecast values.
-
-- `candidate_R` *(optional)*
-  Iterable of candidate R values.
-
-**Returns**
-
-- Mapping or DataFrame of `CostRatioEstimate` objects keyed by entity.
+- Legacy mode: `pd.DataFrame`
+- Artifact mode: `EntityCostRatioEstimate`
 
 ---
 
 ## Estimation Artifacts
 
-Both functions return structured estimation artifacts rather than raw scalars.
+When artifact mode is enabled, tuning functions return structured objects containing:
 
-Artifacts typically include:
+- Selected R (`R_star`)
+- Full cost curves
+- Balance gaps
+- Grid sensitivity diagnostics
+- Identifiability signals (`is_identifiable`)
 
-- Selected R value
-- Diagnostic statistics
-- Sample size and coverage
-- Method identifiers
+Artifacts are designed for:
+- Human review
+- Logging and serialization
+- Downstream governance decisions
 
-These artifacts are intended for review and governance.
+---
+
+## Identifiability and Stability
+
+Cost ratio tuning may be **weakly identifiable** when:
+
+- Cost curves are flat
+- Multiple grid points yield similar balance
+- Small grid perturbations change the selected R
+
+To surface this, artifacts include:
+
+- `rel_min_gap`
+- `grid_instability_log`
+- `is_identifiable`
+
+These signals:
+- Do **not** change selection
+- Exist solely for governance and audit
 
 ---
 
 ## Determinism Guarantees
 
-Cost ratio tuning guarantees:
+All tuning routines guarantee:
 
 - Deterministic outputs for identical inputs
-- Explicit tie-breaking rules
+- Explicit tie-breaking
 - No stochastic behavior
+- Stable results across platforms
 
-These guarantees are critical for reproducibility.
+This is critical for reproducibility.
 
 ---
 
 ## Interaction with Policies
 
-Estimated R values are not applied directly.
+Tuning **does not apply R**.
 
-Instead, they are used to construct a **CostRatioPolicy**:
+Instead, estimates are reviewed and frozen into policies:
 
 ```python
 from eb_optimization.policies.cost_ratio_policy import CostRatioPolicy
 
-policy = CostRatioPolicy(R=estimate.R)
+policy = CostRatioPolicy(R_grid=(...), co=...)
 ```
 
-This separation enforces clean layering.
-
----
-
-## Defaults and Candidate Grids
-
-If no candidate grid is provided:
-
-- A documented default grid is used
-- Grid selection is explicit and stable
-- Behavior does not change silently between versions
-
-Users may override grids when appropriate.
+Policies then govern how R is applied in evaluation or production.
 
 ---
 
 ## Common Usage Patterns
 
-- Global calibration for system-wide cost assumptions
+- Global calibration for system-wide asymmetry
 - Entity-level calibration for heterogeneous environments
 - Periodic re-estimation under regime change
 
@@ -175,20 +195,20 @@ Users may override grids when appropriate.
 
 ## Anti-Patterns
 
-The following patterns are discouraged:
+Avoid:
 
 - Treating R as a model hyperparameter
-- Selecting R directly from sensitivity minima
-- Re-estimating R inside evaluation workflows
-- Using floating-point equality without tolerance
+- Selecting R dynamically inside evaluation
+- Ignoring identifiability diagnostics
+- Using raw scalar R without governance
 
 ---
 
 ## Stability Notes
 
-- Function signatures are considered **public API**
-- Behavior is stable within major versions
-- New estimation strategies may be added additively
+- APIs are considered public and stable
+- New diagnostics may be added additively
+- Selection semantics are version-stable
 
 ---
 
@@ -201,4 +221,4 @@ The following patterns are discouraged:
 
 ---
 
-*Cost ratio tuning formalizes asymmetry — it does not invent it.*
+*Cost ratio tuning formalizes asymmetry — it does not enforce it.*

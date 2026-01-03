@@ -1,80 +1,85 @@
 # Search and Tie-Breaking
 
 This document describes the **search utilities and tie-breaking logic** used in
-eb-optimization to support deterministic parameter selection.
+`eb-optimization` to support deterministic, governable parameter selection.
 
-Search and tie-breaking are foundational to ensuring that optimization outcomes are
-**reproducible, explainable, and governed**.
+Search and tie-breaking are not optimization tricks — they are **decision hygiene**.
+Their purpose is to ensure that parameter choices are **reproducible, explainable, and auditable**.
 
 ---
 
 ## Why Search Exists in eb-optimization
 
-Many tuning and calibration problems do not admit closed-form solutions.
+Many decision-calibration problems do not admit closed-form solutions.
 Instead, parameters are selected from **finite candidate sets**.
 
-Search in eb-optimization exists to:
+Search exists to:
 
 - Evaluate candidate decision parameters
-- Select optimal values deterministically
-- Avoid hidden randomness
-- Preserve reproducibility across runs
+- Enforce deterministic selection
+- Eliminate hidden randomness
+- Preserve reproducibility across runs and environments
 
 Search is a *mechanism*, not a decision-maker.
 
 ---
 
-## Candidate-Based Optimization
+## Candidate-Based Selection
 
-eb-optimization uses **candidate-based optimization**, where:
+eb-optimization uses **candidate-based selection**, where:
 
-- A finite grid of candidate values is constructed
-- Each candidate is evaluated using a metric or objective
-- The best candidate is selected according to explicit rules
+- A finite grid of candidate values is defined explicitly
+- Each candidate is evaluated using a deterministic criterion
+- One candidate is selected using explicit rules
 
 This approach is preferred over continuous solvers because it is:
 
 - Transparent
 - Stable
 - Easy to audit
+- Resistant to numerical noise
 
 ---
 
-## Grid Construction
+## Grid Construction Philosophy
 
-Candidate grids are typically constructed using helper utilities such as:
+Candidate grids are always **explicit**.
+
+Common grid construction strategies include:
 
 - Fixed linear grids
 - Logarithmic grids
 - Domain-informed discrete sets
 
-Grid construction is intentionally explicit to avoid implicit assumptions.
+Grids are never inferred implicitly from data.
+
+Grid design is considered a **governance decision**, not an implementation detail.
 
 ---
 
-## Deterministic Selection
+## Deterministic Evaluation
 
-Given a candidate grid and evaluation scores, eb-optimization guarantees:
+Given a grid and an evaluation function, eb-optimization guarantees:
 
-- Deterministic selection
+- Deterministic evaluation of all candidates
 - No dependence on iteration order
-- No stochastic tie resolution
+- No stochastic components
 
-Identical inputs always produce identical outputs.
+Identical inputs always produce identical evaluation curves.
 
 ---
 
-## The Need for Tie-Breaking
+## Why Tie-Breaking Is Necessary
 
-In practice, multiple candidates may be equally optimal under a given objective.
+In practice, multiple candidates may be **equally optimal** or nearly optimal.
 
 Without explicit tie-breaking:
 
 - Results may depend on iteration order
-- Outputs may vary across platforms
-- Reproducibility is compromised
+- Behavior may vary across platforms
+- Governance becomes ambiguous
 
-Tie-breaking logic resolves this ambiguity.
+Tie-breaking logic exists to resolve this ambiguity *by design*.
 
 ---
 
@@ -82,29 +87,53 @@ Tie-breaking logic resolves this ambiguity.
 
 eb-optimization uses **tie-breaking kernels** to resolve equivalent candidates.
 
-Common patterns include:
+Typical kernels include:
 
-- Selecting the smallest acceptable value
-- Selecting the most conservative value
-- Selecting the most stable value
+- **First / leftmost** (grid-order preference)
+- **Most conservative** (risk-averse choice)
+- **Stability-aware** (robust to perturbation)
 
-The choice of kernel reflects *decision philosophy*, not numerical accident.
+The kernel reflects **decision philosophy**, not numerical accident.
 
 ---
 
-## Primary APIs
+## Kernel vs Objective
 
-Typical tie-breaking utilities include functions such as:
+It is critical to distinguish:
 
-```python
-from eb_optimization.search.kernels import argmin_over_candidates
-```
+- **Objective**: what is being optimized
+- **Kernel**: how ties are resolved
 
-These helpers ensure that:
+Changing a kernel does **not** change the objective — it changes how ambiguity is handled.
 
-- Selection rules are centralized
-- Behavior is consistent across tuning routines
-- Decision logic is reviewable
+This separation makes tie-breaking auditable.
+
+---
+
+## Stability-Aware Selection
+
+Some tuning routines evaluate **selection stability** by perturbing:
+
+- Candidate grids
+- Pivot points
+- Neighborhood structure
+
+When multiple candidates remain viable under perturbation, diagnostics may flag
+weak identifiability — but selection still remains deterministic.
+
+Search does not *refuse* to choose; it **chooses transparently**.
+
+---
+
+## Relationship to Tuning
+
+Search utilities are used internally by tuning routines to:
+
+- Select cost ratios (R)
+- Select service thresholds (τ)
+- Select RAL parameters
+
+Search utilities themselves are generic and reusable across tuning domains.
 
 ---
 
@@ -113,31 +142,19 @@ These helpers ensure that:
 In eb-optimization:
 
 - **Search** evaluates candidates
-- **Optimization** selects parameters
+- **Tuning** selects parameters
 - **Policies** freeze decisions
 
-Search is never responsible for governance decisions.
-
----
-
-## Relationship to Tuning
-
-Search utilities are used internally by tuning routines to:
-
-- Select R values
-- Select τ thresholds
-- Choose RAL parameters
-
-However, search functions are generic and reusable.
+Search never performs governance and never mutates state.
 
 ---
 
 ## Best Practices
 
-- Use coarse grids first, then refine if needed
-- Prefer conservative tie-breaking rules
-- Document grid choices in artifacts
-- Avoid overfitting via excessively dense grids
+- Prefer coarse grids before refinement
+- Use conservative tie-breaking by default
+- Document grid choices in tuning artifacts
+- Inspect stability diagnostics before freezing policies
 
 ---
 
@@ -145,10 +162,10 @@ However, search functions are generic and reusable.
 
 - Relying on implicit iteration order
 - Using floating-point equality without tolerance
-- Mixing stochastic and deterministic selection
-- Hiding decision rules inside tuning code
+- Mixing stochastic logic into selection
+- Hiding tie-breaking inside notebooks
 
-eb-optimization centralizes these concerns to avoid error.
+eb-optimization centralizes search to prevent these failures.
 
 ---
 
@@ -157,8 +174,8 @@ eb-optimization centralizes these concerns to avoid error.
 Explicit search and tie-breaking enable:
 
 - Transparent parameter selection
-- Post-hoc explanation of decisions
-- Consistent behavior across environments
+- Reproducible historical analysis
+- Independent audit of decision logic
 
 Without deterministic tie-breaking, governance collapses.
 
@@ -166,22 +183,22 @@ Without deterministic tie-breaking, governance collapses.
 
 ## When to Revisit Search Logic
 
-Search logic should evolve only when:
+Search logic should change only when:
 
 - Decision philosophy changes
 - New classes of parameters are introduced
-- Stability or interpretability requirements shift
+- Stability requirements evolve
 
-Changes should be deliberate and reviewed.
+Such changes should be deliberate and reviewed.
 
 ---
 
 ## Next Steps
 
 - See **Concepts → Tuning** for estimation workflows
-- Review **How-To → Run Sensitivity Sweeps**
+- Review **How-To → Sensitivity Analysis**
 - Consult **API → Search** for reference documentation
 
 ---
 
-*In Electric Barometer, ambiguity is resolved by design — not by accident.*
+*In Electric Barometer, ambiguity is resolved intentionally — never accidentally.*
