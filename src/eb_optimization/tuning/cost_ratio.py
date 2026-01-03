@@ -639,6 +639,9 @@ def estimate_entity_R_from_balance(
     if co <= 0:
         raise ValueError("co must be strictly positive.")
 
+    # Conservative identifiability thresholds (reporting only; does not change selection)
+    rel_gap_threshold = 0.05
+
     grouped = df.groupby(entity_col, sort=False)
 
     # Backward-compatible output collector
@@ -706,10 +709,17 @@ def estimate_entity_R_from_balance(
                 )
                 curves[entity_id] = curve
 
+                min_gap = 0.0
+                rel_min_gap = 0.0
+                is_identifiable = True
+
                 diagnostics: dict[str, Any] = {
                     "over_cost_const": 0.0,
                     "min_gap": 0.0,
                     "degenerate_perfect_forecast": True,
+                    "rel_min_gap": float(rel_min_gap),
+                    "identifiability_thresholds": {"rel_gap_threshold": float(rel_gap_threshold)},
+                    "is_identifiable": bool(is_identifiable),
                 }
 
                 table_rows.append(
@@ -786,11 +796,21 @@ def estimate_entity_R_from_balance(
         if return_result:
             curves[entity_id] = curve
 
+            if over_cost_const > 0.0:
+                rel_min_gap = float(min_gap / over_cost_const)
+            else:
+                rel_min_gap = 0.0 if min_gap == 0.0 else float("inf")
+
+            is_identifiable = bool(rel_min_gap <= rel_gap_threshold)
+
             # Ensure diagnostics are JSON-serializable simple types
             diagnostics = {
                 "over_cost_const": float(over_cost_const),
                 "min_gap": float(min_gap),
                 "degenerate_perfect_forecast": False,
+                "rel_min_gap": float(rel_min_gap),
+                "identifiability_thresholds": {"rel_gap_threshold": float(rel_gap_threshold)},
+                "is_identifiable": bool(is_identifiable),
             }
 
             table_rows.append(

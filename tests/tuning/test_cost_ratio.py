@@ -574,6 +574,9 @@ def test_estimate_entity_R_artifact_degenerate_entity_has_zero_curve_and_min_gap
         selection="curve",
     )
 
+    # Narrow explicitly for static typing.
+    assert isinstance(res, EntityCostRatioEstimate)
+
     table = res.table.set_index("entity")
     for ent in ["A", "B"]:
         assert np.isclose(float(table.loc[ent, "R_star"]), expected_R)
@@ -605,6 +608,9 @@ def test_estimate_entity_R_filters_non_positive_ratios_in_artifact_mode_grid():
         return_result=True,
         selection="curve",
     )
+
+    # Narrow explicitly for static typing.
+    assert isinstance(res, EntityCostRatioEstimate)
 
     assert np.allclose(res.grid, np.asarray([0.5, 1.0, 2.0], dtype=float))
     for curve in res.curves.values():
@@ -638,6 +644,10 @@ def test_estimate_entity_R_selection_kernel_matches_curve_selection():
         return_result=True,
         selection="kernel",
     )
+
+    # Narrow explicitly for static typing.
+    assert isinstance(res_curve, EntityCostRatioEstimate)
+    assert isinstance(res_kernel, EntityCostRatioEstimate)
 
     t_curve = res_curve.table.set_index("entity")
     t_kernel = res_kernel.table.set_index("entity")
