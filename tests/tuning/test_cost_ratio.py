@@ -24,7 +24,7 @@ def _as_float_R(res: Any) -> float:
     Supports:
       - float/int
       - (R, diag) tuple
-      - object with .R
+      - CostRatioEstimate-like object with .R_star (preferred) or .R
       - object with .value (fallback)
     """
     if isinstance(res, tuple):
@@ -34,6 +34,8 @@ def _as_float_R(res: Any) -> float:
         raise TypeError(f"Unexpected tuple return for R estimate: {res!r}")
 
     obj = cast(Any, res)
+    if hasattr(obj, "R_star"):
+        return float(obj.R_star)
     if hasattr(obj, "R"):
         return float(obj.R)
     if hasattr(obj, "value"):
@@ -168,8 +170,6 @@ def test_estimate_R_cost_balance_return_curve_artifact_includes_stability_diagno
     - grid sensitivity summary (base / exclude_pivot / shifted)
     - grid_instability_log and range bounds
     - is_identifiable boolean
-
-    These are reporting-only diagnostics and should not change selection.
     """
     # Non-degenerate toy example (both shortfall and overbuild present)
     y_true = np.array([10.0, 0.0, 5.0])
@@ -186,8 +186,6 @@ def test_estimate_R_cost_balance_return_curve_artifact_includes_stability_diagno
         selection="curve",
     )
 
-    # Pyright cannot narrow return type from return_curve=True without overloads.
-    # Narrow explicitly for static typing.
     assert isinstance(est, CostRatioEstimate)
 
     # Artifact shape
@@ -244,7 +242,6 @@ def test_estimate_R_cost_balance_return_curve_perfect_forecast_is_identifiable_a
         selection="curve",
     )
 
-    # Narrow explicitly for static typing.
     assert isinstance(est, CostRatioEstimate)
 
     assert np.isclose(float(est.R_star), 0.9)
@@ -271,8 +268,6 @@ def _build_simple_panel() -> pd.DataFrame:
 
     - Entity A: mostly overbuild (y_pred > y_true)
     - Entity B: mostly shortfall (y_pred < y_true)
-
-    Used to sanity-check that a shortfall-heavy entity prefers an equal or larger R.
     """
     rows: list[dict[str, object]] = []
 
@@ -345,11 +340,6 @@ def test_estimate_entity_R_behavior_shortfall_vs_overbuild():
 def test_estimate_entity_R_zero_error_picks_R_near_one():
     """
     Degenerate case: entity with no error (y_true == y_pred) everywhere.
-
-    We expect:
-    - chosen R to be the grid value closest to 1.0
-    - under_cost == over_cost == 0
-    - diff == 0
     """
     df = pd.DataFrame(
         {
@@ -513,6 +503,30 @@ def test_estimate_entity_R_return_result_artifact_structure_and_curves():
         # grid order preserved
         assert np.allclose(curve["R"].to_numpy(dtype=float), result.grid.astype(float))
 
+    # NEW: diagnostics surface entity stability fields (reporting only)
+    for _, row in result.table.iterrows():
+        diag = row["diagnostics"]
+        assert isinstance(diag, dict)
+        for k in (
+            "rel_min_gap",
+            "grid_sensitivity",
+            "grid_instability_log",
+            "identifiability_thresholds",
+            "is_identifiable",
+        ):
+            assert k in diag
+
+        gs = diag["grid_sensitivity"]
+        assert isinstance(gs, dict)
+        assert {"base", "exclude_pivot", "shifted"}.issubset(gs.keys())
+
+        it = diag["identifiability_thresholds"]
+        assert isinstance(it, dict)
+        assert {"rel_gap_threshold", "log_instability_threshold"}.issubset(it.keys())
+
+        assert float(diag["grid_instability_log"]) >= 0.0
+        assert isinstance(bool(diag["is_identifiable"]), bool)
+
 
 def test_estimate_entity_R_return_result_matches_legacy_R():
     """
@@ -551,7 +565,10 @@ def test_estimate_entity_R_return_result_matches_legacy_R():
 
 def test_estimate_entity_R_artifact_degenerate_entity_has_zero_curve_and_min_gap():
     """
-    Degenerate entities (perfect forecasts) should choose R closest to 1.0.
+    Degenerate entities (perfect forecasts) should choose R closest to 1.0 and:
+    - have a zero curve (under/over/gap all zeros)
+    - have diagnostics indicating perfect forecast
+    - have zero instability
     """
     df = pd.DataFrame(
         {
@@ -574,16 +591,25 @@ def test_estimate_entity_R_artifact_degenerate_entity_has_zero_curve_and_min_gap
         selection="curve",
     )
 
-    # Narrow explicitly for static typing.
     assert isinstance(res, EntityCostRatioEstimate)
 
     table = res.table.set_index("entity")
     for ent in ["A", "B"]:
         assert np.isclose(float(table.loc[ent, "R_star"]), expected_R)
         assert np.isclose(float(table.loc[ent, "gap"]), 0.0)
+
         diag = table.loc[ent, "diagnostics"]
         assert isinstance(diag, dict)
         assert diag["degenerate_perfect_forecast"] is True
+        assert np.isclose(float(diag["rel_min_gap"]), 0.0)
+        assert np.isclose(float(diag["grid_instability_log"]), 0.0)
+        assert bool(diag["is_identifiable"]) is True
+
+        gs = diag["grid_sensitivity"]
+        assert isinstance(gs, dict)
+        assert np.isclose(float(gs["base"]), expected_R)
+        assert np.isclose(float(gs["exclude_pivot"]), expected_R)
+        assert np.isclose(float(gs["shifted"]), expected_R)
 
         curve = res.curves[ent]
         assert np.allclose(curve["under_cost"].to_numpy(dtype=float), 0.0)
@@ -609,7 +635,6 @@ def test_estimate_entity_R_filters_non_positive_ratios_in_artifact_mode_grid():
         selection="curve",
     )
 
-    # Narrow explicitly for static typing.
     assert isinstance(res, EntityCostRatioEstimate)
 
     assert np.allclose(res.grid, np.asarray([0.5, 1.0, 2.0], dtype=float))
@@ -645,7 +670,6 @@ def test_estimate_entity_R_selection_kernel_matches_curve_selection():
         selection="kernel",
     )
 
-    # Narrow explicitly for static typing.
     assert isinstance(res_curve, EntityCostRatioEstimate)
     assert isinstance(res_kernel, EntityCostRatioEstimate)
 

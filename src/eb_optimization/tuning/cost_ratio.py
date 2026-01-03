@@ -641,6 +641,7 @@ def estimate_entity_R_from_balance(
 
     # Conservative identifiability thresholds (reporting only; does not change selection)
     rel_gap_threshold = 0.05
+    log_instability_threshold = float(np.log(1.25))
 
     grouped = df.groupby(entity_col, sort=False)
 
@@ -679,6 +680,53 @@ def estimate_entity_R_from_balance(
         # Precompute entity-specific over_cost constant (independent of R)
         over_cost_const = float(np.sum(w_f * co_f * overbuild))
 
+        def _build_curve(
+            grid: np.ndarray,
+            *,
+            _co_f: float = co_f,
+            _w_f: np.ndarray = w_f,
+            _shortfall: np.ndarray = shortfall,
+            _over_cost_const: float = over_cost_const,
+        ) -> pd.DataFrame:
+            under_list: list[float] = []
+            gap_list: list[float] = []
+            for R in grid:
+                cu_val = float(R) * _co_f
+                under_cost = float(np.sum(_w_f * cu_val * _shortfall))
+                gap = abs(under_cost - _over_cost_const)
+                under_list.append(under_cost)
+                gap_list.append(gap)
+
+            return pd.DataFrame(
+                {
+                    "R": grid.astype(float),
+                    "under_cost": np.asarray(under_list, dtype=float),
+                    "over_cost": np.full(
+                        shape=grid.shape, fill_value=_over_cost_const, dtype=float
+                    ),
+                    "gap": np.asarray(gap_list, dtype=float),
+                }
+            )
+
+        def _select_R_from_curve(curve_df: pd.DataFrame, grid: np.ndarray) -> float:
+            if selection == "curve":
+                idx = int(np.argmin(curve_df["gap"].to_numpy()))
+                return float(curve_df["R"].to_numpy()[idx])
+
+            r_vals = curve_df["R"].to_numpy()
+            gap_vals = curve_df["gap"].to_numpy()
+            idx_map = {float(r): i for i, r in enumerate(r_vals.tolist())}
+
+            def _gap_for_R(R: float, *, _gap_vals=gap_vals, _idx_map=idx_map) -> float:
+                return float(_gap_vals[_idx_map[float(R)]])
+
+            best_R, _best_gap = argmin_over_candidates(
+                candidates=grid,
+                score_fn=_gap_for_R,
+                tie_break="first",
+            )
+            return float(best_R)
+
         # Degenerate case: no error at all for this entity
         if np.all(shortfall == 0.0) and np.all(overbuild == 0.0):
             idx = int(np.argmin(np.abs(positive_R - 1.0)))
@@ -711,6 +759,9 @@ def estimate_entity_R_from_balance(
 
                 min_gap = 0.0
                 rel_min_gap = 0.0
+                R_min = R_star
+                R_max = R_star
+                grid_instability_log = 0.0
                 is_identifiable = True
 
                 diagnostics: dict[str, Any] = {
@@ -718,7 +769,16 @@ def estimate_entity_R_from_balance(
                     "min_gap": 0.0,
                     "degenerate_perfect_forecast": True,
                     "rel_min_gap": float(rel_min_gap),
-                    "identifiability_thresholds": {"rel_gap_threshold": float(rel_gap_threshold)},
+                    "grid_sensitivity": {
+                        "base": float(R_star),
+                        "exclude_pivot": float(R_star),
+                        "shifted": float(R_star),
+                    },
+                    "grid_instability_log": float(grid_instability_log),
+                    "identifiability_thresholds": {
+                        "rel_gap_threshold": float(rel_gap_threshold),
+                        "log_instability_threshold": float(log_instability_threshold),
+                    },
                     "is_identifiable": bool(is_identifiable),
                 }
 
@@ -735,46 +795,9 @@ def estimate_entity_R_from_balance(
                 )
             continue
 
-        # Build sensitivity curve for this entity
-        under_list: list[float] = []
-        gap_list: list[float] = []
-
-        for R in positive_R:
-            cu_val = float(R) * co_f
-            under_cost = float(np.sum(w_f * cu_val * shortfall))
-            gap = abs(under_cost - over_cost_const)
-            under_list.append(under_cost)
-            gap_list.append(gap)
-
-        curve = pd.DataFrame(
-            {
-                "R": positive_R.astype(float),
-                "under_cost": np.asarray(under_list, dtype=float),
-                "over_cost": np.full(
-                    shape=positive_R.shape, fill_value=over_cost_const, dtype=float
-                ),
-                "gap": np.asarray(gap_list, dtype=float),
-            }
-        )
-
-        # Select R*
-        if selection == "curve":
-            idx = int(np.argmin(curve["gap"].to_numpy()))
-            R_star = float(curve["R"].to_numpy()[idx])
-        else:
-            r_vals = curve["R"].to_numpy()
-            gap_vals = curve["gap"].to_numpy()
-            idx_map = {float(r): i for i, r in enumerate(r_vals.tolist())}
-
-            def _gap_for_R(R: float, *, _gap_vals=gap_vals, _idx_map=idx_map) -> float:
-                return float(_gap_vals[_idx_map[float(R)]])
-
-            best_R, _best_gap = argmin_over_candidates(
-                candidates=positive_R,
-                score_fn=_gap_for_R,
-                tie_break="first",
-            )
-            R_star = float(best_R)
+        # Base curve on the canonical grid (positive_R preserves order/tie-break)
+        curve = _build_curve(positive_R)
+        R_star = _select_R_from_curve(curve, positive_R)
 
         min_gap = float(curve.loc[curve["R"] == R_star, "gap"].iloc[0])
         under_star = float(curve.loc[curve["R"] == R_star, "under_cost"].iloc[0])
@@ -801,7 +824,44 @@ def estimate_entity_R_from_balance(
             else:
                 rel_min_gap = 0.0 if min_gap == 0.0 else float("inf")
 
-            is_identifiable = bool(rel_min_gap <= rel_gap_threshold)
+            # -----------------------------------------------------------------
+            # Entity-level grid sensitivity diagnostics (parity with global)
+            # -----------------------------------------------------------------
+            # 1) Exclude pivot: remove the candidate closest to 1.0 (if possible).
+            if positive_R.size >= 2:
+                pivot_idx = int(np.argmin(np.abs(positive_R - 1.0)))
+                grid_exclude = np.delete(positive_R, pivot_idx)
+                curve_exclude = _build_curve(grid_exclude)
+                R_exclude = _select_R_from_curve(curve_exclude, grid_exclude)
+            else:
+                R_exclude = R_star
+
+            # 2) Shifted grid: apply a half-step shift in log space based on the grid's median spacing.
+            if positive_R.size >= 2:
+                sorted_R = np.sort(positive_R.astype(float))
+                log_sorted = np.log(sorted_R)
+                deltas = np.diff(log_sorted)
+                median_delta = float(np.median(deltas)) if deltas.size > 0 else 0.0
+                shift = 0.5 * median_delta
+                factor = float(np.exp(shift))
+                grid_shifted = (positive_R.astype(float) * factor).astype(float)
+                grid_shifted = grid_shifted[grid_shifted > 0]
+                if grid_shifted.size == 0:
+                    R_shifted = R_star
+                else:
+                    curve_shifted = _build_curve(grid_shifted)
+                    R_shifted = _select_R_from_curve(curve_shifted, grid_shifted)
+            else:
+                R_shifted = R_star
+
+            R_min = float(min(R_star, R_exclude, R_shifted))
+            R_max = float(max(R_star, R_exclude, R_shifted))
+            grid_instability_log = float(np.log(R_max) - np.log(R_min)) if R_min > 0.0 else 0.0
+
+            is_identifiable = bool(
+                (grid_instability_log <= log_instability_threshold)
+                and (rel_min_gap <= rel_gap_threshold)
+            )
 
             # Ensure diagnostics are JSON-serializable simple types
             diagnostics = {
@@ -809,7 +869,16 @@ def estimate_entity_R_from_balance(
                 "min_gap": float(min_gap),
                 "degenerate_perfect_forecast": False,
                 "rel_min_gap": float(rel_min_gap),
-                "identifiability_thresholds": {"rel_gap_threshold": float(rel_gap_threshold)},
+                "grid_sensitivity": {
+                    "base": float(R_star),
+                    "exclude_pivot": float(R_exclude),
+                    "shifted": float(R_shifted),
+                },
+                "grid_instability_log": float(grid_instability_log),
+                "identifiability_thresholds": {
+                    "rel_gap_threshold": float(rel_gap_threshold),
+                    "log_instability_threshold": float(log_instability_threshold),
+                },
                 "is_identifiable": bool(is_identifiable),
             }
 

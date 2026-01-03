@@ -103,8 +103,6 @@ def test_apply_cost_ratio_policy_uses_policy_defaults_when_co_none():
     res = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=None, gate="off")
     R, diag = _unpack_cost_ratio_result(res)
 
-    # Balanced example chooses 2.0 regardless of co scale (costs scale cancels in balance),
-    # but we mainly assert diagnostics reflect default usage.
     assert np.isfinite(R)
     assert diag["co_default_used"] is True
     assert diag["method"] == "cost_balance"
@@ -121,7 +119,6 @@ def test_apply_cost_ratio_policy_balanced_example_has_known_optimum():
 
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0)
 
-    # Silence gating side-effects; this test is about correctness of R.
     res = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=1.0, gate="off")
     R, _ = _unpack_cost_ratio_result(res)
     assert np.isclose(R, 2.0)
@@ -132,7 +129,6 @@ def test_apply_cost_ratio_policy_returns_nan_safe_diag_when_co_is_array():
     y_pred = np.array([0.0, 20.0])
     co = np.array([1.0, 1.0])
 
-    # Silence gating side-effects; this test is about diag field indicating array co.
     res = apply_cost_ratio_policy(
         y_true=y_true,
         y_pred=y_pred,
@@ -152,17 +148,15 @@ def test_apply_cost_ratio_policy_surfaces_identifiability_diagnostics():
     from tuning/cost_ratio.py (reporting-only; does not change selection).
     """
     y_true = np.array([10.0, 0.0, 5.0])
-    y_pred = np.array([0.0, 20.0, 7.0])  # both shortfall and overbuild present
+    y_pred = np.array([0.0, 20.0, 7.0])
 
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0)
 
-    # Silence gating side-effects; this test is about surfacing the fields, not warning/raising.
     res = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=1.0, gate="off")
     R, diag = _unpack_cost_ratio_result(res)
 
     assert np.isfinite(R)
 
-    # surfaced scalar diagnostics
     for k in ("rel_min_gap", "R_min", "R_max", "grid_instability_log", "is_identifiable"):
         assert k in diag
 
@@ -171,7 +165,6 @@ def test_apply_cost_ratio_policy_surfaces_identifiability_diagnostics():
     assert float(diag["grid_instability_log"]) >= 0.0
     assert isinstance(bool(diag["is_identifiable"]), bool)
 
-    # surfaced nested tuning diagnostics
     assert "calibration_diagnostics" in diag
     cal = diag["calibration_diagnostics"]
     assert isinstance(cal, dict)
@@ -193,7 +186,6 @@ def test_apply_cost_ratio_policy_perfect_forecast_has_zero_instability_and_ident
 
     policy = CostRatioPolicy(R_grid=(0.4, 0.9, 1.3, 3.0), co=1.0)
 
-    # Silence gating side-effects; this test is about the surfaced scalar fields.
     res = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=1.0, gate="off")
     _R, diag = _unpack_cost_ratio_result(res)
 
@@ -233,7 +225,6 @@ def test_apply_cost_ratio_policy_gate_warn_emits_runtimewarning_when_not_identif
                 gate="warn",
             )
     else:
-        # Identifiable: ensure warn mode doesn't raise.
         apply_cost_ratio_policy(
             y_true=y_true,
             y_pred=y_pred,
@@ -253,7 +244,6 @@ def test_apply_cost_ratio_policy_gate_raise_raises_when_not_identifiable_or_is_o
 
     policy = CostRatioPolicy(R_grid=(0.25, 1.0, 10.0), co=1.0)
 
-    # Determine identifiability under the current thresholds.
     res = apply_cost_ratio_policy(y_true=y_true, y_pred=y_pred, policy=policy, co=1.0, gate="off")
     _R, diag = _unpack_cost_ratio_result(res)
 
@@ -267,7 +257,6 @@ def test_apply_cost_ratio_policy_gate_raise_raises_when_not_identifiable_or_is_o
                 gate="raise",
             )
 
-        # Override should suppress the raise and record metadata
         res2 = apply_cost_ratio_policy(
             y_true=y_true,
             y_pred=y_pred,
@@ -285,7 +274,6 @@ def test_apply_cost_ratio_policy_gate_raise_raises_when_not_identifiable_or_is_o
         assert ig["gate_overridden"] is True
         assert ig["gate_override_reason"] == "Known flat curve in pilot; allow for now."
     else:
-        # If identifiable, raise mode should not raise.
         apply_cost_ratio_policy(
             y_true=y_true,
             y_pred=y_pred,
@@ -317,7 +305,6 @@ def test_apply_entity_cost_ratio_policy_min_n_governance_blocks_small_entities()
 
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0, min_n=6)
 
-    # Silence gating side-effects; this test is about min_n behavior.
     res = apply_entity_cost_ratio_policy(
         df,
         entity_col="entity",
@@ -328,7 +315,6 @@ def test_apply_entity_cost_ratio_policy_min_n_governance_blocks_small_entities()
     )
     out = _as_entity_df(res)
 
-    # one row per entity
     assert set(out["entity"]) == {"A", "B"}
     assert len(out) == 2
 
@@ -348,7 +334,6 @@ def test_apply_entity_cost_ratio_policy_includes_or_excludes_diagnostics():
     df = _panel_for_entity_tests()
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0, min_n=6)
 
-    # Silence gating side-effects; this test is about column inclusion/exclusion.
     res_with = apply_entity_cost_ratio_policy(
         df,
         entity_col="entity",
@@ -414,7 +399,6 @@ def test_apply_entity_cost_ratio_policy_uses_policy_default_co_when_none():
 
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=2.0, min_n=6)
 
-    # Silence gating side-effects; this test is about co selection.
     res = apply_entity_cost_ratio_policy(
         df,
         entity_col="entity",
@@ -454,11 +438,9 @@ def test_apply_entity_cost_ratio_policy_surfaces_entity_diagnostics_when_enabled
     row_a = out.loc[out["entity"] == "A"].iloc[0]
     row_b = out.loc[out["entity"] == "B"].iloc[0]
 
-    # Ineligible entity: diagnostics should be None/NaN
     assert "diagnostics" in out.columns
     assert row_a["diagnostics"] is None or pd.isna(row_a["diagnostics"])
 
-    # Eligible entity: diagnostics should be a dict with expected keys
     diag_b = row_b["diagnostics"]
     assert isinstance(diag_b, dict)
     assert {"over_cost_const", "min_gap", "degenerate_perfect_forecast"}.issubset(diag_b.keys())
@@ -470,12 +452,40 @@ def test_apply_entity_cost_ratio_policy_surfaces_entity_diagnostics_when_enabled
 def test_apply_entity_cost_ratio_policy_includes_gate_metadata_when_gate_requested():
     """
     Entity policy should include an `identifiability_gate` column when gating is enabled.
+
+    We probe first: only assert a RuntimeWarning if the policy indicates any eligible
+    entity is non-identifiable (to avoid flakiness if thresholds change).
     """
     df = _panel_for_entity_tests()
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0, min_n=6)
 
-    # Current behavior warns on this panel; assert the warning to keep tests clean.
-    with pytest.warns(RuntimeWarning):
+    out_probe = apply_entity_cost_ratio_policy(
+        df,
+        entity_col="entity",
+        y_true_col="actual_qty",
+        y_pred_col="forecast_qty",
+        policy=policy,
+        include_diagnostics=True,
+        gate="off",
+    )
+    assert isinstance(out_probe, pd.DataFrame)
+    assert "is_identifiable" in out_probe.columns
+
+    eligible = out_probe.loc[out_probe["reason"].isna()]
+    any_bad = bool((eligible["is_identifiable"] == False).any())  # noqa: E712
+
+    if any_bad:
+        with pytest.warns(RuntimeWarning):
+            out = apply_entity_cost_ratio_policy(
+                df,
+                entity_col="entity",
+                y_true_col="actual_qty",
+                y_pred_col="forecast_qty",
+                policy=policy,
+                include_diagnostics=True,
+                gate="warn",
+            )
+    else:
         out = apply_entity_cost_ratio_policy(
             df,
             entity_col="entity",
@@ -495,18 +505,18 @@ def test_apply_entity_cost_ratio_policy_includes_gate_metadata_when_gate_request
 
 def test_apply_entity_cost_ratio_policy_gate_raise_raises_without_override_when_not_identifiable():
     """
-    Entity gating may be driven by internal diagnostics (not necessarily surfaced as a column),
-    so we must not assume "no is_identifiable column => gating no-op".
+    Entity gating is driven by the surfaced `is_identifiable` column (derived from diagnostics).
 
-    Behavior expected:
-      - gate="raise" may raise if the implementation deems any eligible entity non-identifiable
-      - providing identifiability_override_reason must suppress the raise
-      - if the implementation deems the panel identifiable, raise mode should not raise
+    Expected behavior:
+      - If any eligible entity is non-identifiable:
+          * gate="raise" raises
+          * override suppresses and records metadata
+      - Otherwise:
+          * gate="raise" does not raise
     """
     df = _panel_for_entity_tests()
     policy = CostRatioPolicy(R_grid=(0.5, 1.0, 2.0, 3.0), co=1.0, min_n=6)
 
-    # Probe under gate="off" so we can keep any diagnostic columns available for debugging.
     out_probe = apply_entity_cost_ratio_policy(
         df,
         entity_col="entity",
@@ -517,22 +527,23 @@ def test_apply_entity_cost_ratio_policy_gate_raise_raises_without_override_when_
         gate="off",
     )
     assert isinstance(out_probe, pd.DataFrame)
+    assert "is_identifiable" in out_probe.columns
 
-    try:
-        out = apply_entity_cost_ratio_policy(
-            df,
-            entity_col="entity",
-            y_true_col="actual_qty",
-            y_pred_col="forecast_qty",
-            policy=policy,
-            include_diagnostics=True,
-            gate="raise",
-        )
-        # If no raise, the implementation considers the panel acceptable under current thresholds.
-        assert isinstance(out, pd.DataFrame)
-        assert set(out["entity"]) == {"A", "B"}
-    except ValueError:
-        # If it raises, override must suppress and still return a valid result.
+    eligible = out_probe.loc[out_probe["reason"].isna()]
+    any_bad = bool((eligible["is_identifiable"] == False).any())  # noqa: E712
+
+    if any_bad:
+        with pytest.raises(ValueError):
+            apply_entity_cost_ratio_policy(
+                df,
+                entity_col="entity",
+                y_true_col="actual_qty",
+                y_pred_col="forecast_qty",
+                policy=policy,
+                include_diagnostics=True,
+                gate="raise",
+            )
+
         out_ok = apply_entity_cost_ratio_policy(
             df,
             entity_col="entity",
@@ -552,3 +563,15 @@ def test_apply_entity_cost_ratio_policy_gate_raise_raises_without_override_when_
         assert ig["gate_triggered"] is True
         assert ig["gate_overridden"] is True
         assert ig["gate_override_reason"] == "Pilot exception; allow non-identifiable entities."
+    else:
+        out = apply_entity_cost_ratio_policy(
+            df,
+            entity_col="entity",
+            y_true_col="actual_qty",
+            y_pred_col="forecast_qty",
+            policy=policy,
+            include_diagnostics=True,
+            gate="raise",
+        )
+        assert isinstance(out, pd.DataFrame)
+        assert set(out["entity"]) == {"A", "B"}

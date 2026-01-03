@@ -153,7 +153,6 @@ def apply_cost_ratio_policy(
         selection="curve",
     )
 
-    # Backward safety: if something upstream returns a float anyway, keep working.
     stability_diag: dict[str, Any]
     gate_meta: dict[str, Any] = {}
 
@@ -183,7 +182,7 @@ def apply_cost_ratio_policy(
             "R_max": float(est.R_max),
             "grid_instability_log": float(est.grid_instability_log),
             "is_identifiable": bool(est.is_identifiable),
-            # Full tuning diagnostics (already JSON-serializable by convention)
+            # Full tuning diagnostics
             "calibration_diagnostics": dict(est.diagnostics),
         }
     else:
@@ -229,10 +228,12 @@ def apply_entity_cost_ratio_policy(
 
     Entity-level identifiability
     ----------------------------
-    If tuning provides an `is_identifiable` flag in the per-entity diagnostics dict,
-    this function can optionally warn/raise based on `gate`.
+    The tuning artifact returns per-entity `diagnostics` dicts. If those dicts contain
+    an `is_identifiable` field, this function will:
+      - surface a convenience `is_identifiable` column, and
+      - optionally warn/raise based on `gate`.
 
-    If no such flag exists (older tuning versions), gating is a no-op.
+    If no such field exists (older tuning versions), gating is a no-op.
     """
     # ---- validation: columns ----
     required_cols = {entity_col, y_true_col, y_pred_col}
@@ -248,28 +249,24 @@ def apply_entity_cost_ratio_policy(
         raise ValueError(f"co must be finite and strictly positive. Got {co_val}.")
 
     # ---- governance: identify eligible entities ----
-    # Resolution for Error 133: Ensure the groupby result is strictly typed as a Series
-    # so that the .index access is valid.
     counts_ser = cast(pd.Series, df.groupby(entity_col, dropna=False, sort=False).size())
-
-    # Filtering creates a slice; we cast the result of that slice to Series to access .index
     eligible_counts = cast(pd.Series, counts_ser[counts_ser >= policy.min_n])
     eligible_list = cast(list[Any], eligible_counts.index.tolist())
 
     mask = df[entity_col].isin(eligible_list)
 
-    # Cast slices back to DataFrame to preserve attribute access
     eligible_df = cast(pd.DataFrame, df[mask]).copy()
     ineligible_df = cast(pd.DataFrame, df[~mask]).copy()
 
-    # ---- tune eligible entities ----
     results_list: list[pd.DataFrame] = []
 
     gate_meta: dict[str, Any] = {}
     failed_entities: list[Any] = []
 
+    # Track whether we can gate at all (only if the diagnostics dicts contain is_identifiable)
+    identifiability_available = False
+
     if not eligible_df.empty:
-        # Use artifact mode so we can surface per-entity diagnostics at the policy boundary.
         tuned_any: Any = estimate_entity_R_from_balance(
             df=eligible_df,
             entity_col=entity_col,
@@ -285,7 +282,6 @@ def apply_entity_cost_ratio_policy(
 
         tuned_table = cast(pd.DataFrame, tuned_art.table).copy()
 
-        # Normalize artifact table into the legacy-ish policy output schema.
         tuned = pd.DataFrame(
             {
                 entity_col: tuned_table[entity_col],
@@ -298,9 +294,7 @@ def apply_entity_cost_ratio_policy(
             }
         )
 
-        # Add diagnostics column (policy boundary surfacing).
-        # Keep it even if include_diagnostics=False temporarily so we can gate from it;
-        # we'll drop it from output later if needed.
+        # Always attach diagnostics internally (for gating), drop later if include_diagnostics=False
         if "diagnostics" in tuned_table.columns:
             tuned["diagnostics"] = tuned_table["diagnostics"]
         else:
@@ -308,23 +302,26 @@ def apply_entity_cost_ratio_policy(
 
         tuned["reason"] = None
 
-        # Explicit mapping: use Any bridge to satisfy Pyright's strict 'map' signature
         mapper: Any = counts_ser
         tuned["n"] = tuned[entity_col].map(mapper).astype(int)
 
-        # ---- optional gate: only if diagnostics contain is_identifiable ----
-        # We consider an entity "failed" if diagnostics is a dict and has is_identifiable==False.
-        for _, row in tuned.iterrows():
-            diag_val = row.get("diagnostics", None)
-            if (
-                isinstance(diag_val, dict)
-                and ("is_identifiable" in diag_val)
-                and (bool(diag_val.get("is_identifiable")) is False)
-            ):
-                failed_entities.append(row[entity_col])
+        # Surface an `is_identifiable` column if diagnostics provides it.
+        # This is a convenience field for users/tests and lets gating be explicit/inspectable.
+        def _extract_is_identifiable(v: Any) -> Any:
+            if isinstance(v, dict) and ("is_identifiable" in v):
+                return bool(v.get("is_identifiable"))
+            return None
 
-        if failed_entities:
-            ok = False
+        tuned["is_identifiable"] = tuned["diagnostics"].map(_extract_is_identifiable)
+
+        # ---- FIX: make the conditional unambiguously bool for Pyright ----
+        has_ident = bool(tuned["is_identifiable"].notna().to_numpy().any())
+        if has_ident:
+            identifiability_available = True
+            failed_mask = tuned["is_identifiable"] == False  # noqa: E712
+            failed_entities = cast(list[Any], tuned.loc[failed_mask, entity_col].tolist())
+
+        if identifiability_available and failed_entities:
             msg = (
                 "One or more entities have non-identifiable cost ratio calibration. "
                 f"Failed entities (first 10): {failed_entities[:10]!r}. "
@@ -332,14 +329,13 @@ def apply_entity_cost_ratio_policy(
             )
             gate_meta = _handle_identifiability_gate(
                 gate=gate,
-                ok=ok,
+                ok=False,
                 message=msg,
                 override_reason=identifiability_override_reason,
             )
 
         results_list.append(tuned)
 
-    # ---- build rows for ineligible entities ----
     if not ineligible_df.empty:
         ineligible_rows = cast(pd.DataFrame, ineligible_df[[entity_col]]).drop_duplicates()
         ineligible_rows = ineligible_rows.assign(
@@ -351,13 +347,13 @@ def apply_entity_cost_ratio_policy(
             diff=np.nan,
             reason=f"min_n_not_met(<{policy.min_n})",
             diagnostics=None,
+            is_identifiable=None,
         )
 
         mapper_ineligible: Any = counts_ser
         ineligible_rows["n"] = ineligible_rows[entity_col].map(mapper_ineligible).astype(int)
         results_list.append(ineligible_rows)
 
-    # ---- combine and organize ----
     if not results_list:
         schema_cols = [
             entity_col,
@@ -372,6 +368,8 @@ def apply_entity_cost_ratio_policy(
         ]
         if include_diagnostics:
             schema_cols.append("diagnostics")
+        # Include is_identifiable if we can ever surface it (safe default: include it anyway)
+        schema_cols.append("is_identifiable")
         if gate_meta:
             schema_cols.append("identifiability_gate")
 
@@ -383,17 +381,15 @@ def apply_entity_cost_ratio_policy(
     if gate_meta:
         out["identifiability_gate"] = [gate_meta] * int(out.shape[0])
 
-    base_cols = [entity_col, "R", "cu", "co", "n", "reason"]
+    base_cols = [entity_col, "R", "cu", "co", "n", "reason", "is_identifiable"]
     diag_cols = ["under_cost", "over_cost", "diff"]
 
     if include_diagnostics:
         base_cols.append("diagnostics")
 
-    # If not including diagnostics, drop it (but keep other columns stable)
     if not include_diagnostics and "diagnostics" in out.columns:
         out = out.drop(columns=["diagnostics"])
 
-    # Keep identifiability_gate if present
     if "identifiability_gate" in out.columns:
         base_cols.append("identifiability_gate")
 
