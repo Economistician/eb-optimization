@@ -16,7 +16,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
+import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -28,6 +29,8 @@ from eb_optimization.tuning.cost_ratio import (
     estimate_entity_R_from_balance,
     estimate_R_cost_balance,
 )
+
+GateMode = Literal["off", "warn", "raise"]
 
 
 @dataclass(frozen=True)
@@ -66,6 +69,46 @@ class CostRatioPolicy:
 DEFAULT_COST_RATIO_POLICY = CostRatioPolicy()
 
 
+def _handle_identifiability_gate(
+    *,
+    gate: GateMode,
+    ok: bool,
+    message: str,
+    override_reason: str | None,
+) -> dict[str, Any]:
+    """
+    Warn-only / gateable hook shared by global + entity policy applications.
+
+    Returns a JSON-serializable dict with the gating decision metadata that can be
+    merged into diagnostics payloads.
+    """
+    gate = cast(GateMode, gate)
+    if gate not in ("off", "warn", "raise"):
+        raise ValueError("gate must be one of: 'off', 'warn', 'raise'")
+
+    meta: dict[str, Any] = {
+        "gate_mode": gate,
+        "gate_triggered": bool(not ok),
+        "gate_overridden": bool((not ok) and (override_reason is not None)),
+        "gate_override_reason": override_reason,
+    }
+
+    if ok or gate == "off":
+        return meta
+
+    # If not ok:
+    if override_reason is not None:
+        # Override: do not warn/raise; record reason.
+        return meta
+
+    if gate == "warn":
+        warnings.warn(message, RuntimeWarning, stacklevel=2)
+        return meta
+
+    # gate == "raise"
+    raise ValueError(message)
+
+
 def apply_cost_ratio_policy(
     y_true: ArrayLike,
     y_pred: ArrayLike,
@@ -73,6 +116,8 @@ def apply_cost_ratio_policy(
     policy: CostRatioPolicy = DEFAULT_COST_RATIO_POLICY,
     co: float | ArrayLike | None = None,
     sample_weight: ArrayLike | None = None,
+    gate: GateMode = "warn",
+    identifiability_override_reason: str | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """
     Apply a frozen cost-ratio policy to estimate a global R.
@@ -81,6 +126,19 @@ def apply_cost_ratio_policy(
     -----
     This policy boundary surfaces identifiability / stability diagnostics when available.
     It does NOT change the selection behavior; it only enriches the returned diagnostics.
+
+    Gating
+    ------
+    `gate` controls what happens when tuning reports `is_identifiable=False`:
+
+    - gate="off"  : no action (still reports diagnostics)
+    - gate="warn" : emit a RuntimeWarning (default)
+    - gate="raise": raise ValueError
+
+    Overrides
+    ---------
+    If `identifiability_override_reason` is provided, the gate will not warn/raise,
+    and the reason is recorded in diagnostics for auditability.
     """
     co_val = policy.co if co is None else co
 
@@ -96,10 +154,29 @@ def apply_cost_ratio_policy(
     )
 
     # Backward safety: if something upstream returns a float anyway, keep working.
+    stability_diag: dict[str, Any]
+    gate_meta: dict[str, Any] = {}
+
     if isinstance(est_any, CostRatioEstimate):
         est = est_any
         R = float(est.R_star)
-        stability_diag: dict[str, Any] = {
+
+        ok = bool(est.is_identifiable)
+        msg = (
+            "Cost ratio calibration is not identifiable/stable under configured diagnostics. "
+            f"(rel_min_gap={float(est.rel_min_gap):.6g}, "
+            f"grid_instability_log={float(est.grid_instability_log):.6g}, "
+            f"R_star={float(est.R_star):.6g}, R_range=[{float(est.R_min):.6g}, {float(est.R_max):.6g}])."
+        )
+
+        gate_meta = _handle_identifiability_gate(
+            gate=gate,
+            ok=ok,
+            message=msg,
+            override_reason=identifiability_override_reason,
+        )
+
+        stability_diag = {
             # Policy-surfaced stability fields (governance/reporting only)
             "rel_min_gap": float(est.rel_min_gap),
             "R_min": float(est.R_min),
@@ -124,6 +201,7 @@ def apply_cost_ratio_policy(
         "co_default_used": co is None,
         "R": float(R),
         **stability_diag,
+        **({"identifiability_gate": gate_meta} if gate_meta else {}),
     }
     return (float(R), diag)
 
@@ -138,18 +216,23 @@ def apply_entity_cost_ratio_policy(
     co: float | None = None,
     sample_weight_col: str | None = None,
     include_diagnostics: bool = True,
+    gate: GateMode = "warn",
+    identifiability_override_reason: str | None = None,
 ) -> pd.DataFrame:
     """
     Apply a frozen cost-ratio policy per entity.
 
     Notes
     -----
-    This policy boundary now surfaces per-entity calibration diagnostics (in the
+    This policy boundary surfaces per-entity calibration diagnostics (in the
     `diagnostics` column) for eligible entities when `include_diagnostics=True`.
 
-    Identifiability (rel_min_gap / grid_instability_log / is_identifiable) is currently
-    implemented for *global* R calibration in tuning/cost_ratio.py. Entity-level
-    identifiability can be added later without changing this policy surface.
+    Entity-level identifiability
+    ----------------------------
+    If tuning provides an `is_identifiable` flag in the per-entity diagnostics dict,
+    this function can optionally warn/raise based on `gate`.
+
+    If no such flag exists (older tuning versions), gating is a no-op.
     """
     # ---- validation: columns ----
     required_cols = {entity_col, y_true_col, y_pred_col}
@@ -182,6 +265,9 @@ def apply_entity_cost_ratio_policy(
     # ---- tune eligible entities ----
     results_list: list[pd.DataFrame] = []
 
+    gate_meta: dict[str, Any] = {}
+    failed_entities: list[Any] = []
+
     if not eligible_df.empty:
         # Use artifact mode so we can surface per-entity diagnostics at the policy boundary.
         tuned_any: Any = estimate_entity_R_from_balance(
@@ -200,7 +286,6 @@ def apply_entity_cost_ratio_policy(
         tuned_table = cast(pd.DataFrame, tuned_art.table).copy()
 
         # Normalize artifact table into the legacy-ish policy output schema.
-        # (This preserves existing downstream expectations while adding richer diagnostics.)
         tuned = pd.DataFrame(
             {
                 entity_col: tuned_table[entity_col],
@@ -214,14 +299,44 @@ def apply_entity_cost_ratio_policy(
         )
 
         # Add diagnostics column (policy boundary surfacing).
-        if include_diagnostics and "diagnostics" in tuned_table.columns:
+        # Keep it even if include_diagnostics=False temporarily so we can gate from it;
+        # we'll drop it from output later if needed.
+        if "diagnostics" in tuned_table.columns:
             tuned["diagnostics"] = tuned_table["diagnostics"]
+        else:
+            tuned["diagnostics"] = None
 
         tuned["reason"] = None
 
         # Explicit mapping: use Any bridge to satisfy Pyright's strict 'map' signature
         mapper: Any = counts_ser
         tuned["n"] = tuned[entity_col].map(mapper).astype(int)
+
+        # ---- optional gate: only if diagnostics contain is_identifiable ----
+        # We consider an entity "failed" if diagnostics is a dict and has is_identifiable==False.
+        for _, row in tuned.iterrows():
+            diag_val = row.get("diagnostics", None)
+            if (
+                isinstance(diag_val, dict)
+                and ("is_identifiable" in diag_val)
+                and (bool(diag_val.get("is_identifiable")) is False)
+            ):
+                failed_entities.append(row[entity_col])
+
+        if failed_entities:
+            ok = False
+            msg = (
+                "One or more entities have non-identifiable cost ratio calibration. "
+                f"Failed entities (first 10): {failed_entities[:10]!r}. "
+                "You may override with identifiability_override_reason."
+            )
+            gate_meta = _handle_identifiability_gate(
+                gate=gate,
+                ok=ok,
+                message=msg,
+                override_reason=identifiability_override_reason,
+            )
+
         results_list.append(tuned)
 
     # ---- build rows for ineligible entities ----
@@ -235,10 +350,8 @@ def apply_entity_cost_ratio_policy(
             over_cost=np.nan,
             diff=np.nan,
             reason=f"min_n_not_met(<{policy.min_n})",
+            diagnostics=None,
         )
-
-        if include_diagnostics:
-            ineligible_rows["diagnostics"] = None
 
         mapper_ineligible: Any = counts_ser
         ineligible_rows["n"] = ineligible_rows[entity_col].map(mapper_ineligible).astype(int)
@@ -259,24 +372,36 @@ def apply_entity_cost_ratio_policy(
         ]
         if include_diagnostics:
             schema_cols.append("diagnostics")
+        if gate_meta:
+            schema_cols.append("identifiability_gate")
 
-        # Resolution for Error 187: Wrap list in pd.Index to satisfy the 'Axes' requirement
         return pd.DataFrame(columns=pd.Index(schema_cols))
 
     out = pd.concat(results_list, ignore_index=True, sort=False)
 
+    # Attach gate metadata as a repeated column (JSON-serializable) if it exists
+    if gate_meta:
+        out["identifiability_gate"] = [gate_meta] * int(out.shape[0])
+
     base_cols = [entity_col, "R", "cu", "co", "n", "reason"]
+    diag_cols = ["under_cost", "over_cost", "diff"]
+
     if include_diagnostics:
         base_cols.append("diagnostics")
 
-    diag_cols = ["under_cost", "over_cost", "diff"]
+    # If not including diagnostics, drop it (but keep other columns stable)
+    if not include_diagnostics and "diagnostics" in out.columns:
+        out = out.drop(columns=["diagnostics"])
+
+    # Keep identifiability_gate if present
+    if "identifiability_gate" in out.columns:
+        base_cols.append("identifiability_gate")
 
     remaining = [str(c) for c in out.columns if c not in base_cols + diag_cols]
     target_cols = (
         (base_cols + diag_cols + remaining) if include_diagnostics else (base_cols + remaining)
     )
 
-    # Resolution for Error 187: Use pd.Index for the column slice to satisfy strict typing
     return cast(pd.DataFrame, out[pd.Index(target_cols)])
 
 

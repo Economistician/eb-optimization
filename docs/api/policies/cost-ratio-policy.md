@@ -43,15 +43,15 @@ CostRatioPolicy(
 
 ### Parameters
 
-- `R_grid : Sequence[float]`  
+- `R_grid : Sequence[float]`
   Candidate ratios to search during calibration. Only strictly positive values
   are permitted. Grid order defines tie-breaking behavior.
 
-- `co : float`  
+- `co : float`
   Default overbuild cost coefficient. Underbuild cost is derived as
   `c_u = R * c_o`.
 
-- `min_n : int`  
+- `min_n : int`
   Minimum number of observations required for entity-level calibration.
   Entities failing this threshold are deterministically excluded.
 
@@ -155,13 +155,13 @@ Cost ratio calibration may be **weakly identifiable** when:
 
 To surface this, calibration diagnostics include:
 
-- `rel_min_gap`  
+- `rel_min_gap`
   Relative imbalance at the chosen point
 
-- `grid_instability_log`  
+- `grid_instability_log`
   Log spread of selected R under grid perturbations
 
-- `is_identifiable`  
+- `is_identifiable`
   Boolean summary derived from conservative thresholds
 
 These diagnostics:
