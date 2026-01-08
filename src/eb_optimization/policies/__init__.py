@@ -23,6 +23,7 @@ Exported policies
 - Tau (τ) tolerance governance for HR@τ
 - Cost-ratio (R = c_u / c_o) governance for asymmetric loss
 - RAL policy governance (readiness adjustment layer)
+- DQC (Δ*) governance for packed / quantized demand snapping and evaluation
 """
 
 from __future__ import annotations
@@ -32,6 +33,15 @@ from .cost_ratio_policy import (
     CostRatioPolicy,
     apply_cost_ratio_policy,
     apply_entity_cost_ratio_policy,
+)
+from .dqc_policy import (
+    DEFAULT_DQC_POLICY,
+    DQCPolicy,
+    DQCResult,
+    compute_dqc,
+    enforce_snapping,
+    hr_at_tau_grid_units,
+    snap_to_grid,
 )
 from .ral_policy import DEFAULT_RAL_POLICY, RALPolicy, apply_ral_policy
 from .tau_policy import (
@@ -43,8 +53,11 @@ from .tau_policy import (
 
 __all__ = [
     "DEFAULT_COST_RATIO_POLICY",
+    "DEFAULT_DQC_POLICY",
     "DEFAULT_RAL_POLICY",
     "CostRatioPolicy",
+    "DQCPolicy",
+    "DQCResult",
     "RALPolicy",
     "TauPolicy",
     "apply_cost_ratio_policy",
@@ -53,4 +66,8 @@ __all__ = [
     "apply_ral_policy",
     "apply_tau_policy",
     "apply_tau_policy_hr",
+    "compute_dqc",
+    "enforce_snapping",
+    "hr_at_tau_grid_units",
+    "snap_to_grid",
 ]

@@ -17,13 +17,13 @@ It intentionally avoids defining metrics, data contracts, or evaluation workflow
 
 ## Contents
 
-- **Policies**  
+- **Policies**
   Readiness and cost-ratio policies that govern decision adjustments
 
-- **Search utilities**  
+- **Search utilities**
   Tools for exploring parameter spaces and optimization surfaces
 
-- **Tuning helpers**  
+- **Tuning helpers**
   Utilities for estimating and calibrating policy parameters
 
 ## API reference
