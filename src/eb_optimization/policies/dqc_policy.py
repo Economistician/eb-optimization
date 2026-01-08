@@ -104,7 +104,7 @@ def snap_to_grid(
     Returns:
         Snapped array (float dtype), preserving NaNs.
     """
-    if not (isinstance(delta, (int, float)) and delta > 0.0):
+    if not (isinstance(delta, int | float) and delta > 0.0):
         raise ValueError(f"delta must be > 0; got {delta!r}")
 
     x = np.asarray(x, dtype=float)
