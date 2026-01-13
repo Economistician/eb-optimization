@@ -1,33 +1,30 @@
 """Demand Quantization Compatibility (DQC) policy and snapping enforcement.
 
 This module defines the governance logic required to correctly evaluate forecasts
-when realized demand is quantized or unit-packed. It implements Demand Quantization
-Compatibility (DQC) as a diagnostic and enforcement layer that detects whether demand
-lies on a discrete grid and, if so, enforces projection ("snapping") of forecasts
-onto that grid prior to evaluation.
+when realized demand is quantized or unit-packed.
+
+Important
+---------
+In EB, DQC itself is a *diagnostic* (classification + signals) and lives in
+`eb-evaluation`. This module is *policy*: it consumes a DQC result and enforces
+unit-compatibility (snapping) and grid-unit tolerance interpretation.
 
 Key responsibilities:
-- Detect demand quantization structure and infer the governing grid size (Δ*).
-- Classify demand as CONTINUOUS, QUANTIZED, or PACKED based on alignment evidence.
-- Enforce unit compatibility by snapping forecasts to Δ* when required.
+- Enforce unit compatibility by snapping forecasts to the DQC-inferred grid.
 - Interpret evaluation tolerances (τ) in grid units rather than raw numeric units.
+- Provide a small set of enforcement modes suitable for governance/policy layers.
 
 This module does not define forecasting models or metric primitives. Instead, it
 provides policy-level wrappers that ensure evaluation metrics operate in a valid
-unit space. When demand is PACKED or QUANTIZED, unsnapped evaluation is considered
-invalid and must be corrected or rejected according to policy.
-
-DQC is a structural compatibility gate, not a performance metric. Its purpose is to
-prevent mathematically invalid evaluation and model comparison when demand outcomes
-are intrinsically discrete.
+unit space. When demand is packed or quantized, unsnapped evaluation can be made
+invalid; policy decides whether to correct (snap), reject (raise), or ignore.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-import math
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -37,6 +34,12 @@ try:
 except Exception:  # pragma: no cover
     _hr_at_tau = None
 
+# Optional dependency on eb-evaluation (preferred DQC source)
+try:  # pragma: no cover - import guard
+    from eb_evaluation.diagnostics.dqc import classify_dqc as _classify_dqc
+except Exception:  # pragma: no cover - import guard
+    _classify_dqc = None
+
 
 DQCClass = Literal["CONTINUOUS", "QUANTIZED", "PACKED"]
 SnapMode = Literal["nearest", "floor", "ceil"]
@@ -45,28 +48,19 @@ EnforcementMode = Literal["snap", "raise", "ignore"]
 
 @dataclass(frozen=True, slots=True)
 class DQCPolicy:
-    """Governance thresholds and candidate grids for DQC."""
+    """Legacy DQCPolicy container.
 
-    # Candidate grids (Δ) to test for alignment. Keep small and auditable.
-    candidates: tuple[float, ...] = (0.25, 0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0)
+    This policy previously owned DQC *detection* thresholds. DQC detection now lives
+    in `eb-evaluation` (diagnostics). This object remains for backwards compatibility
+    with callers that may still pass `policy=` into `compute_dqc`.
 
-    # Numerical tolerance for "on-grid" checks in y-units.
-    tol: float = 1e-6
+    New code should:
+    - run DQC in `eb-evaluation` (e.g., `validate_dqc(y=...)`)
+    - pass the resulting DQCResult into `enforce_snapping` / `hr_at_tau_grid_units`
+    """
 
-    # Classification thresholds.
-    rho_packed: float = 0.99
-    rho_quantized: float = 0.90
-
-    # Packed-ness evidence thresholds.
-    support_packed_max: int = 100
-    offgrid_mad_over_delta_max: float = 0.05
-
-    # Minimum positive support required to consider the DQC result meaningful.
+    # Minimum positive support required to consider a DQC result meaningful.
     min_n_pos: int = 50
-
-    # Tie-break rule for selecting delta_star among candidates with equal rho.
-    # "max_delta" prefers the coarsest grid among ties (more conservative packing).
-    tie_break: Literal["max_delta", "min_delta"] = "max_delta"
 
 
 DEFAULT_DQC_POLICY = DQCPolicy()
@@ -74,7 +68,14 @@ DEFAULT_DQC_POLICY = DQCPolicy()
 
 @dataclass(frozen=True, slots=True)
 class DQCResult:
-    """Output of DQC computation."""
+    """Output of DQC computation (policy-facing summary).
+
+    Notes
+    -----
+    - `delta_star` is the inferred grid (Δ*) in y-units.
+    - This is a lightweight summary shape used by eb-optimization policy code.
+    - When using eb-evaluation DQC, `delta_star` maps to `signals.granularity`.
+    """
 
     dqc_class: DQCClass
     delta_star: float | None
@@ -132,155 +133,231 @@ def snap_to_grid(
     return out
 
 
-def _mad(a: np.ndarray) -> float:
-    """Median absolute deviation around the median (robust)."""
-    med = float(np.median(a))
-    return float(np.median(np.abs(a - med)))
+def _type_label(obj: Any) -> str:
+    try:
+        return f"{obj.__class__.__module__}.{obj.__class__.__name__}"
+    except Exception:  # pragma: no cover
+        return str(type(obj))
+
+
+def _get_eval_granularity(dqc: Any) -> float | None:
+    """Extract Δ* (granularity) from an eb-evaluation DQCResult-like object."""
+    try:
+        signals = dqc.signals
+        g = signals.granularity
+        if g is None:
+            return None
+        fg = float(g)
+        return fg if fg > 0 else None
+    except Exception:
+        return None
+
+
+def _get_eval_class_value(dqc: Any) -> str:
+    """Return a normalized eb-evaluation DQC class value (lowercase) if possible."""
+    try:
+        cls = dqc.dqc_class
+    except Exception:
+        return ""
+
+    # Enum-like (preferred)
+    if hasattr(cls, "value"):
+        try:
+            return str(cls.value).lower()
+        except Exception:
+            return ""
+
+    # Fallback stringification
+    try:
+        return str(cls).lower()
+    except Exception:
+        return ""
+
+
+def _map_eval_dqc_to_policy_dqc(dqc: Any) -> DQCResult:
+    """Map eb-evaluation DQCResult -> eb-optimization DQCResult summary."""
+    granularity = _get_eval_granularity(dqc)
+
+    # Class mapping (eb-evaluation -> policy)
+    dqc_class: DQCClass = "CONTINUOUS"
+    cls_val = _get_eval_class_value(dqc)
+
+    if cls_val in ("quantized",):
+        dqc_class = "QUANTIZED"
+    elif cls_val in ("piecewise_packed",):
+        dqc_class = "PACKED"
+    elif cls_val in ("continuous_like", "unknown", ""):
+        dqc_class = "CONTINUOUS"
+    else:
+        # Last resort heuristics
+        if "quant" in cls_val:
+            dqc_class = "QUANTIZED"
+        elif "pack" in cls_val:
+            dqc_class = "PACKED"
+        else:
+            dqc_class = "CONTINUOUS"
+
+    rho_star: float | None = None
+    support_size: int = 0
+    offgrid_mad_over_delta: float | None = None
+
+    try:
+        signals = dqc.signals
+        rho_star = float(signals.multiple_rate)
+        support_size = int(signals.support_size)
+        offgrid_mad = float(signals.offgrid_mad)
+        if granularity is not None and granularity > 0:
+            offgrid_mad_over_delta = offgrid_mad / granularity
+    except Exception:
+        pass
+
+    # `n_pos` is not carried explicitly by eb-evaluation DQC; callers can compute it
+    # from their realized series if needed. We set it to 0 here and optionally fill
+    # it in compute_dqc().
+    return DQCResult(
+        dqc_class=dqc_class,
+        delta_star=granularity,
+        rho_star=rho_star,
+        n_pos=0,
+        support_size=support_size,
+        offgrid_mad_over_delta=offgrid_mad_over_delta,
+    )
 
 
 def compute_dqc(
-    y: Sequence[float] | np.ndarray,
+    y: Any,
     *,
     policy: DQCPolicy = DEFAULT_DQC_POLICY,
     use_positive_only: bool = True,
 ) -> DQCResult:
     """Compute DQC over a realized demand series.
 
-    Notes:
-    - For grid detection, positive demand values carry the most information.
-      Zeros can dominate alignment trivially, so default behavior uses positives only.
-    - Missing values (NaN) are ignored.
+    Preferred behavior:
+    - If `eb-evaluation` is available, this delegates to its DQC diagnostic and
+      maps the result into this module's lightweight DQCResult shape.
+
+    Backwards compatibility:
+    - This function remains so existing eb-optimization call sites keep working.
+    - New code should call `eb_evaluation.diagnostics.validate_dqc(y=...)` directly
+      and pass that DQCResult into policy functions here.
 
     Args:
         y: Realized demand sequence.
-        policy: DQCPolicy thresholds and candidate grids.
-        use_positive_only: If True, only y>0 are used for detection.
+        policy: Legacy DQCPolicy (only min_n_pos is used here as a conservative guard).
+        use_positive_only: If True, only y>0 are used to compute `n_pos` for the guard.
 
     Returns:
-        DQCResult with class + delta_star + diagnostics.
+        DQCResult summary.
     """
+    # Compute n_pos for the legacy "insufficient signal" guard.
     y_arr = np.asarray(y, dtype=float)
     y_arr = y_arr[np.isfinite(y_arr)]
+    y_pos = y_arr[y_arr > 0.0] if use_positive_only else y_arr
 
-    if use_positive_only:
-        y_arr = y_arr[y_arr > 0.0]
+    n_pos = int(y_pos.size)
+    support_size = int(np.unique(np.round(y_pos, 6)).size) if n_pos else 0
 
-    n_pos = int(y_arr.size)
     if n_pos < policy.min_n_pos:
-        # Not enough signal to conclude; treat as continuous-like by default.
         return DQCResult(
             dqc_class="CONTINUOUS",
             delta_star=None,
             rho_star=None,
             n_pos=n_pos,
-            support_size=int(np.unique(np.round(y_arr, 4)).size) if n_pos else 0,
+            support_size=support_size,
             offgrid_mad_over_delta=None,
         )
 
-    # Support size (rounded to label precision)
-    support_size = int(np.unique(np.round(y_arr, 4)).size)
+    if _classify_dqc is None:
+        raise ImportError(
+            "DQC diagnostics are not available. Install/enable `eb-evaluation` to compute DQC, "
+            "or run DQC in the evaluation layer and pass the result into policy enforcement."
+        )
 
-    candidates = np.asarray(policy.candidates, dtype=float)
-    if candidates.ndim != 1 or candidates.size == 0:
-        raise ValueError("policy.candidates must be a non-empty 1D sequence")
+    # Delegate to eb-evaluation (diagnostic)
+    eval_result = _classify_dqc(y=y_pos.tolist(), thresholds=None)
+    mapped = _map_eval_dqc_to_policy_dqc(eval_result)
 
-    if np.any(candidates <= 0.0):
-        raise ValueError("All candidate deltas must be > 0")
-
-    # Residual to nearest multiple: |y - round(y/Δ)*Δ|
-    y_col = y_arr.reshape(-1, 1)  # (n,1)
-    deltas = candidates.reshape(1, -1)  # (1,k)
-
-    nearest = np.round(y_col / deltas) * deltas
-    resid = np.abs(y_col - nearest)  # (n,k)
-
-    rho = (resid <= policy.tol).mean(axis=0)  # (k,)
-
-    # Choose delta_star: maximize rho, break ties by delta direction.
-    max_rho = float(np.max(rho))
-    tie_idx = np.flatnonzero(rho == max_rho)
-
-    if tie_idx.size == 1:
-        best_idx = int(tie_idx[0])
-    else:
-        if policy.tie_break == "max_delta":
-            best_idx = int(tie_idx[np.argmax(candidates[tie_idx])])
-        elif policy.tie_break == "min_delta":
-            best_idx = int(tie_idx[np.argmin(candidates[tie_idx])])
-        else:
-            raise ValueError(f"Unsupported tie_break: {policy.tie_break!r}")
-
-    delta_star = float(candidates[best_idx])
-    rho_star = float(rho[best_idx])
-
-    resid_star = resid[:, best_idx]
-    mad = _mad(resid_star)
-    offgrid_mad_over_delta = float(mad / delta_star) if delta_star > 0 else math.nan
-
-    # Classification
-    if (
-        rho_star >= policy.rho_packed
-        and offgrid_mad_over_delta <= policy.offgrid_mad_over_delta_max
-        and support_size <= policy.support_packed_max
-    ):
-        dqc_class: DQCClass = "PACKED"
-    elif rho_star >= policy.rho_quantized:
-        dqc_class = "QUANTIZED"
-    else:
-        dqc_class = "CONTINUOUS"
-
+    # Fill in n_pos from the series guard (more informative than 0)
     return DQCResult(
-        dqc_class=dqc_class,
-        delta_star=delta_star,
-        rho_star=rho_star,
+        dqc_class=mapped.dqc_class,
+        delta_star=mapped.delta_star,
+        rho_star=mapped.rho_star,
         n_pos=n_pos,
-        support_size=support_size,
-        offgrid_mad_over_delta=offgrid_mad_over_delta,
+        support_size=mapped.support_size,
+        offgrid_mad_over_delta=mapped.offgrid_mad_over_delta,
     )
+
+
+def _resolve_policy_class_and_delta(dqc: Any) -> tuple[DQCClass, float | None]:
+    """
+    Resolve a DQCResult-like input into a policy class and Δ*.
+
+    Supports:
+    - this module's DQCResult (dqc_class, delta_star)
+    - eb-evaluation DQCResult (dqc_class.value, signals.granularity)
+    """
+    if isinstance(dqc, DQCResult):
+        return dqc.dqc_class, dqc.delta_star
+
+    delta = _get_eval_granularity(dqc)
+    cls_val = _get_eval_class_value(dqc)
+
+    # Treat eb-evaluation UNKNOWN as CONTINUOUS for enforcement (no snapping by default).
+    if cls_val == "quantized":
+        return "QUANTIZED", delta
+    if cls_val == "piecewise_packed":
+        return "PACKED", delta
+    return "CONTINUOUS", delta
 
 
 def enforce_snapping(
     y_hat: Sequence[float] | np.ndarray,
     *,
-    dqc: DQCResult,
+    dqc: Any,
     enforce: EnforcementMode = "snap",
     mode: SnapMode = "nearest",
+    tol: float = 1e-6,
 ) -> np.ndarray:
     """Apply DQC snapping enforcement to forecasts.
 
     Policy intent:
-    - PACKED demand => snapping is required (unit compatibility).
-    - QUANTIZED demand => snapping is strongly recommended; default behavior snaps.
-    - CONTINUOUS => no snapping.
+    - PACKED / QUANTIZED demand => snapping is required (unit compatibility).
+    - CONTINUOUS-like demand => no snapping.
+    - UNKNOWN => no snapping unless a granularity is available (in which case
+      snapping is applied, since Δ* exists).
 
     Args:
         y_hat: Forecast values.
-        dqc: DQCResult for the relevant entity/window.
+        dqc: DQCResult-like object (preferred: eb-evaluation DQCResult) OR this module's DQCResult.
         enforce: "snap" (default), "raise" (error if off-grid), "ignore".
         mode: Snapping mode (if enforce == "snap").
+        tol: Absolute tolerance for off-grid checks (used when enforce == "raise").
 
     Returns:
         Forecast array, snapped or unchanged depending on class and enforcement.
     """
     y_hat_arr = np.asarray(y_hat, dtype=float)
 
-    if dqc.dqc_class == "CONTINUOUS" or dqc.delta_star is None:
+    dqc_class, delta = _resolve_policy_class_and_delta(dqc)
+
+    if dqc_class == "CONTINUOUS" or delta is None:
         return y_hat_arr
 
     if enforce == "ignore":
         return y_hat_arr
 
-    delta = float(dqc.delta_star)
-
     if enforce == "raise":
-        snapped = snap_to_grid(y_hat_arr, delta, mode="nearest", nonneg=True)
-        offgrid = np.isfinite(y_hat_arr) & (np.abs(y_hat_arr - snapped) > DEFAULT_DQC_POLICY.tol)
+        snapped = snap_to_grid(y_hat_arr, float(delta), mode="nearest", nonneg=True)
+        offgrid = np.isfinite(y_hat_arr) & (np.abs(y_hat_arr - snapped) > tol)
         if bool(np.any(offgrid)):
-            raise ValueError("Forecast contains off-grid values under PACKED/QUANTIZED DQC policy.")
+            raise ValueError(
+                "Forecast contains off-grid values under PACKED/QUANTIZED DQC policy. "
+                "Either snap forecasts before evaluation or use enforce='snap'."
+            )
         return y_hat_arr
 
     if enforce == "snap":
-        return snap_to_grid(y_hat_arr, delta, mode=mode, nonneg=True)
+        return snap_to_grid(y_hat_arr, float(delta), mode=mode, nonneg=True)
 
     raise ValueError(f"Unsupported enforce mode: {enforce!r}")
 
@@ -289,7 +366,7 @@ def hr_at_tau_grid_units(
     y_true: Sequence[float] | np.ndarray,
     y_hat: Sequence[float] | np.ndarray,
     *,
-    dqc: DQCResult,
+    dqc: Any,
     tau_units: float,
     enforce: EnforcementMode = "snap",
     snap_mode: SnapMode = "nearest",
@@ -299,19 +376,12 @@ def hr_at_tau_grid_units(
     For PACKED / QUANTIZED demand:
     - Forecasts are snapped per enforcement policy (default: snap).
     - Error is evaluated in grid units: |y - yhat| / Δ* <= τ_units.
+    - We convert tau_units to y-units via tau = tau_units * Δ*.
+
+    For CONTINUOUS-like demand:
+    - tau_units is interpreted as y-units directly (caller responsibility).
 
     Delegates to eb-metrics `hr_at_tau` after converting τ into y-units.
-
-    Args:
-        y_true: Realized demand.
-        y_hat: Forecast demand.
-        dqc: DQCResult for the relevant entity/window.
-        tau_units: Tolerance in grid units (Δ* multiples).
-        enforce: Snapping enforcement behavior.
-        snap_mode: Snapping mode for y_hat when enforce == "snap".
-
-    Returns:
-        Hit rate in [0,1].
     """
     if _hr_at_tau is None:  # pragma: no cover
         raise ImportError(
@@ -321,11 +391,12 @@ def hr_at_tau_grid_units(
     y_true_arr = np.asarray(y_true, dtype=float)
     y_hat_arr = np.asarray(y_hat, dtype=float)
 
-    if dqc.dqc_class in ("PACKED", "QUANTIZED") and dqc.delta_star is not None:
+    dqc_class, delta = _resolve_policy_class_and_delta(dqc)
+
+    if dqc_class in ("PACKED", "QUANTIZED") and delta is not None:
         y_hat_arr = enforce_snapping(y_hat_arr, dqc=dqc, enforce=enforce, mode=snap_mode)
-        tau = float(tau_units) * float(dqc.delta_star)
+        tau = float(tau_units) * float(delta)
     else:
-        # Continuous-like: interpret tau_units as y-units directly (caller responsibility).
         tau = float(tau_units)
 
     return float(_hr_at_tau(y_true_arr, y_hat_arr, tau=tau))

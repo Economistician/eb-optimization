@@ -59,7 +59,8 @@ Documentation = "https://github.com/Economistician/eb-docs"
 ######################################
 [project.optional-dependencies]
 
-# Pull in EB ecosystem deps when tuning objectives/policies that rely on them
+# EB ecosystem deps (metrics primitives, diagnostics contracts)
+# Use this when you want DQC diagnostics from eb-evaluation and HR@τ primitive from eb-metrics.
 eb = [
   # Electric Barometer compatibility band (0.2.x)
   "eb-metrics>=0.2,<0.3",
