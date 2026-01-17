@@ -1,0 +1,123 @@
+REPOSITORY: eb-optimization
+
+ROLE
+This repository is the optimization and parameter-tuning layer of the
+Electric Barometer ecosystem.
+
+It is responsible for learning, calibrating, and selecting parameter values
+(e.g., thresholds, tolerances, adjustment bounds, policy parameters) using
+historical data and evaluation outputs, and for producing reproducible,
+deterministic parameter artifacts.
+
+This repository answers: “Given historical evidence, what parameters should
+be used?”
+It does NOT answer: “What should we do right now?”
+
+---
+
+PRIMARY RESPONSIBILITIES
+
+- Parameter tuning and calibration against EB objectives:
+  - tuning thresholds, tolerances, bounds, and policy parameters
+  - optimizing against historical evaluation outputs and cost objectives
+  - producing parameter artifacts suitable for reuse
+
+- Optimization workflows:
+  - grid search, sweep-based, or deterministic optimization routines
+  - evaluation-driven optimization (metrics as objective functions)
+  - reproducible experiments with explicit inputs and outputs
+
+- Policy artifact generation:
+  - emit deterministic, versioned parameter artifacts
+  - artifacts are intended to be consumed by governance or execution layers,
+    not interpreted here
+
+- Clear separation of “fit” vs “apply”:
+  - optimization produces parameters
+  - application of those parameters happens elsewhere
+
+---
+
+NON-RESPONSIBILITIES (STRICT)
+
+This repository MUST NOT:
+
+- Execute governance decisions or bind execution behavior
+- Apply RAL or perform forecast adjustments in production workflows
+- Mutate or serve forecasts as a final system output
+- Define metric primitives or evaluation logic
+  (belongs in eb-metrics / eb-evaluation)
+- Define schemas or validation contracts
+  (belongs in eb-contracts)
+- Train forecasting models or perform model selection
+  (belongs in eb-adapters / electric-barometer)
+- Perform live or online optimization
+
+---
+
+CORE INVARIANTS
+
+- Optimization is offline and historical.
+  All tuning is performed using historical data and evaluation outputs.
+  No optimization occurs at execution or serving time.
+
+- Outputs are parameters, not actions.
+  The primary outputs of this repository are parameter values and artifacts,
+  not decisions or adjusted forecasts.
+
+- Determinism and reproducibility are required.
+  Given the same inputs, optimization must produce the same outputs.
+  Randomness must be explicit, controlled, and seedable.
+
+- Metrics are objectives, not gates.
+  Metrics may be used as objective functions during optimization, but must
+  never be interpreted as pass/fail gates or authorization rules.
+
+- Transparency over cleverness.
+  Optimization routines must be explainable and auditable; opaque or
+  self-modifying behavior is disallowed.
+
+---
+
+SYSTEM RELATIONSHIP
+
+- This repository defers to `eb-integration/llm.system.txt` for:
+  - canonical pipeline ordering
+  - the rule that governance is the single binding decision layer
+  - the rule that adjustment is optional and bounded
+
+- This repository consumes:
+  - eb-evaluation outputs (metrics, diagnostics, readiness signals)
+  - eb-metrics primitives indirectly via evaluation outputs
+
+- This repository produces:
+  - parameter and policy artifacts to be consumed by governance or execution
+    layers downstream
+
+---
+
+ALLOWED CHANGES
+
+- Adding new optimization routines or tuning strategies (with tests)
+- Improving optimization stability, performance, or reproducibility
+- Adding new parameter artifact formats (versioned and documented)
+- Extending support for new objective metrics (without redefining them)
+
+---
+
+DISALLOWED CHANGES
+
+- Turning optimization outputs into implicit decisions
+- Embedding governance logic or thresholds as defaults
+- Applying forecast adjustments directly
+- Introducing online, adaptive, or self-updating behavior
+- Adding cross-repo dependencies beyond evaluation inputs
+
+---
+
+INTERPRETATION RULE
+
+If the change is about learning or selecting parameter values from historical
+evidence, it belongs here.
+If the change is about evaluating forecasts, governing behavior, or executing
+adjustments, it does not belong here.
