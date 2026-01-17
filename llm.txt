@@ -13,6 +13,10 @@ This repository answers: “Given historical evidence, what parameters should
 be used?”
 It does NOT answer: “What should we do right now?”
 
+STYLE
+- Inherits ecosystem-wide style and linting rules from
+  eb-integration/tooling/llm.style.txt via shared tooling.
+
 ---
 
 PRIMARY RESPONSIBILITIES
