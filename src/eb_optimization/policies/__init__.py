@@ -55,7 +55,14 @@ from .dqc_policy import (
     snap_to_grid,
 )
 from .evaluation import DQCEvaluation, evaluate_with_dqc_hr
-from .ral_policy import DEFAULT_RAL_POLICY, RALPolicy, apply_ral_policy
+from .ral_policy import (
+    DEFAULT_RAL_POLICY,
+    RALBands,
+    RALBandThresholds,
+    RALPolicy,
+    RALThresholdTwoBandPolicy,
+    apply_ral_policy,
+)
 from .tau_policy import (
     DEFAULT_TAU_POLICY,
     TauPolicy,
@@ -73,7 +80,10 @@ __all__ = [
     "DQCEvaluation",
     "DQCPolicy",
     "DQCResult",
+    "RALBandThresholds",
+    "RALBands",
     "RALPolicy",
+    "RALThresholdTwoBandPolicy",
     "TauPolicy",
     "apply_cost_ratio_policy",
     "apply_entity_cost_ratio_policy",
