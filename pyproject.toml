@@ -38,11 +38,10 @@ classifiers = [
 ######################################
 # Core runtime dependencies
 ######################################
-# Keep this intentionally lean. eb-optimization should be installable even
-# without pulling the rest of the EB stack unless users opt-in via extras.
 dependencies = [
   "numpy>=1.24",
   "pandas>=2.0",
+  "eb-metrics>=0.2,<0.3",
 ]
 
 ######################################
