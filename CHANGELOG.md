@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `snap_to_grid` and `enforce_snapping` default to `ceil`, matching `apply_ral`.
+- `enforce_snapping` refuses non-finite forecasts on CONTINUOUS DQC.
+- `enforce="ignore"` is hard-deprecated and always raises.
+
 ## [0.2.7] - 2026-08-23
 
 ### Changed

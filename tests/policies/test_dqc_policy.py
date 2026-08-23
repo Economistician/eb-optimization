@@ -173,7 +173,9 @@ def test_evaluate_helpers_default_enforce_is_snap() -> None:
     from eb_optimization.policies.evaluation import evaluate_with_dqc_hr
 
     assert inspect.signature(enforce_snapping).parameters["enforce"].default == "snap"
+    assert inspect.signature(enforce_snapping).parameters["mode"].default == "ceil"
     assert inspect.signature(evaluate_with_dqc_hr).parameters["enforce"].default == "snap"
+    assert inspect.signature(evaluate_with_dqc_hr).parameters["snap_mode"].default == "ceil"
 
 
 def test_compute_dqc_detects_packed_grid() -> None:
@@ -205,6 +207,36 @@ def test_enforce_snapping_snap_for_packed() -> None:
     got = enforce_snapping(yhat, dqc=dqc, enforce="snap", mode="nearest")
 
     assert np.allclose(got, np.array([2.0, 2.0, 4.0, 6.0]))
+
+
+def test_enforce_snapping_ignore_is_hard_deprecated() -> None:
+    from eb_optimization.policies.dqc_policy import DQCResult
+
+    dqc = DQCResult(
+        dqc_class="CONTINUOUS",
+        delta_star=None,
+        rho_star=None,
+        n_pos=4,
+        support_size=4,
+        offgrid_mad_over_delta=None,
+    )
+    with pytest.raises(ValueError, match=r"electric_barometer\.apply_ral"):
+        enforce_snapping(np.array([1.0, 2.0], dtype=float), dqc=dqc, enforce="ignore")
+
+
+def test_enforce_snapping_continuous_rejects_nan() -> None:
+    from eb_optimization.policies.dqc_policy import DQCResult
+
+    dqc = DQCResult(
+        dqc_class="CONTINUOUS",
+        delta_star=None,
+        rho_star=None,
+        n_pos=4,
+        support_size=4,
+        offgrid_mad_over_delta=None,
+    )
+    with pytest.raises(ValueError, match="finite"):
+        enforce_snapping(np.array([1.0, np.nan], dtype=float), dqc=dqc, enforce="snap")
 
 
 def test_enforce_snapping_rejects_nan_when_snap_required() -> None:

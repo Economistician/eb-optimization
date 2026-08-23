@@ -48,7 +48,7 @@ def evaluate_with_dqc_hr(
     y_for_dqc: Sequence[float] | np.ndarray | None = None,
     policy: DQCPolicy = DEFAULT_DQC_POLICY,
     enforce: EnforcementMode = "snap",
-    snap_mode: SnapMode = "nearest",
+    snap_mode: SnapMode = "ceil",
     use_positive_only_for_dqc: bool = True,
 ) -> DQCEvaluation:
     """Evaluate HR@τ under DQC governance with τ expressed in grid units.

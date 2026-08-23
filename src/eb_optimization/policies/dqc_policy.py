@@ -1,7 +1,8 @@
 """DQC policy: snap forecasts to Δ* and interpret τ in grid units.
 
 Consumes a DQC diagnostic result from ``eb-evaluation`` and enforces
-snap / raise / ignore modes for packed or quantized demand.
+snap / raise modes for packed or quantized demand. ``enforce="ignore"``
+is hard-deprecated and always raises.
 """
 
 from __future__ import annotations
@@ -102,7 +103,7 @@ def snap_to_grid(
     x: np.ndarray,
     delta: float,
     *,
-    mode: SnapMode = "nearest",
+    mode: SnapMode = "ceil",
     nonneg: bool = True,
 ) -> np.ndarray:
     """Project values onto multiples of delta.
@@ -114,7 +115,7 @@ def snap_to_grid(
     Args:
         x: Array of values to snap. Must be finite.
         delta: Grid size (Δ). Must be > 0.
-        mode: Nearest, floor, or ceil snapping.
+        mode: Ceil (default, matches ``apply_ral``), floor, or nearest snapping.
         nonneg: If True, clamps to >= 0 after snapping.
 
     Returns:
@@ -358,28 +359,34 @@ def _resolve_policy_class_and_delta(dqc: Any) -> tuple[DQCClass, float | None]:
     raise ValueError(f"Unrecognized DQC class {cls_val!r}; refusing fail-open CONTINUOUS mapping.")
 
 
+def _require_finite_forecasts(values: np.ndarray, *, context: str) -> None:
+    """Refuse NaN/±inf so enforcement cannot fail-open on any DQC class."""
+    if values.size and not bool(np.isfinite(values).all()):
+        raise ValueError(f"{context} values must be finite; refusing fail-open NaN/inf forecasts.")
+
+
 def enforce_snapping(
     y_hat: Sequence[float] | np.ndarray,
     *,
     dqc: Any,
     enforce: EnforcementMode = "snap",
-    mode: SnapMode = "nearest",
+    mode: SnapMode = "ceil",
     tol: float = 1e-6,
 ) -> np.ndarray:
     """Apply DQC snapping enforcement to forecasts.
 
     Policy intent:
     - PACKED / QUANTIZED demand => snapping is required (unit compatibility).
-    - CONTINUOUS-like demand => no snapping.
+    - CONTINUOUS-like demand => no snapping, but forecasts must still be finite.
     - UNKNOWN or unrecognized class => raise (fail closed).
     - PACKED / QUANTIZED with missing or invalid Δ* => raise (fail closed).
+    - ``enforce="ignore"`` is hard-deprecated and always raises.
 
     Args:
-        y_hat: Forecast values.
+        y_hat: Forecast values. Must be finite.
         dqc: DQCResult-like object (preferred: eb-evaluation DQCResult) OR this module's DQCResult.
-        enforce: "snap" (default), "raise" (error if off-grid), or explicit "ignore".
-            ``ignore`` is never the default; callers must opt in.
-        mode: Snapping mode (if enforce == "snap").
+        enforce: "snap" (default) or "raise" (error if off-grid).
+        mode: Snapping mode (default ``ceil``, matching ``apply_ral``).
         tol: Absolute tolerance for off-grid checks (used when enforce == "raise").
 
     Returns:
@@ -387,10 +394,17 @@ def enforce_snapping(
 
     Raises:
         ValueError: If class is UNKNOWN, unrecognized, or QUANTIZED/PACKED without a
-            finite positive Δ*. When snapping is enforced, non-finite forecast
-            cells also raise.
+            finite positive Δ*; if any forecast cell is non-finite; or if
+            ``enforce="ignore"``.
     """
     y_hat_arr = np.asarray(y_hat, dtype=float)
+    if enforce == "ignore":
+        raise ValueError(
+            "enforce='ignore' is hard-deprecated on enforce_snapping. "
+            "Use electric_barometer.apply_ral (or eb_evaluation.apply_ral) "
+            "with a valid governance decisions dataframe."
+        )
+    _require_finite_forecasts(y_hat_arr, context="enforce_snapping")
 
     dqc_class, delta = _resolve_policy_class_and_delta(dqc)
 
@@ -399,12 +413,9 @@ def enforce_snapping(
 
     unit = _require_grid_delta(dqc_class, delta)
 
-    if enforce == "ignore":
-        return y_hat_arr
-
     if enforce == "raise":
-        snapped = snap_to_grid(y_hat_arr, unit, mode="nearest", nonneg=True)
-        offgrid = np.isfinite(y_hat_arr) & (np.abs(y_hat_arr - snapped) > tol)
+        snapped = snap_to_grid(y_hat_arr, unit, mode=mode, nonneg=True)
+        offgrid = np.abs(y_hat_arr - snapped) > tol
         if bool(np.any(offgrid)):
             raise ValueError(
                 "Forecast contains off-grid values under PACKED/QUANTIZED DQC policy. "
@@ -425,7 +436,7 @@ def hr_at_tau_grid_units(
     dqc: Any,
     tau_units: float,
     enforce: EnforcementMode = "snap",
-    snap_mode: SnapMode = "nearest",
+    snap_mode: SnapMode = "ceil",
 ) -> float:
     """Compute HR@τ where τ is measured in grid units (Δ*).
 
