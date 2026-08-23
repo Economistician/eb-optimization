@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Polished policy module docstrings to concise technical overviews.
 - Tightened README Overview; removed cloned Role section.
 
+### Fixed
+
+- Resolved Pyright argument-type errors in cost-ratio tuning tests.
+
 ## [0.2.x] - 2026-08-22
 
 ### Added

@@ -44,6 +44,11 @@ def _as_float_R(res: Any) -> float:
     return float(res)
 
 
+def _cell_float(row: pd.Series, col: str) -> float:
+    """Return a DataFrame cell as float for numeric assertions."""
+    return float(cast(Any, row[col]))
+
+
 def _as_entity_df(res: Any) -> pd.DataFrame:
     """
     Normalize an entity-level return into a DataFrame.
@@ -363,11 +368,11 @@ def test_estimate_entity_R_zero_error_picks_R_near_one():
     result = _as_entity_df(res)
 
     for _, row in result.iterrows():
-        assert np.isclose(float(row["R"]), expected_R)
-        assert np.isclose(float(row["cu"]), expected_R * 2.0)
-        assert np.isclose(float(row["under_cost"]), 0.0)
-        assert np.isclose(float(row["over_cost"]), 0.0)
-        assert np.isclose(float(row["diff"]), 0.0)
+        assert np.isclose(_cell_float(row, "R"), expected_R)
+        assert np.isclose(_cell_float(row, "cu"), expected_R * 2.0)
+        assert np.isclose(_cell_float(row, "under_cost"), 0.0)
+        assert np.isclose(_cell_float(row, "over_cost"), 0.0)
+        assert np.isclose(_cell_float(row, "diff"), 0.0)
 
 
 def test_estimate_entity_R_respects_sample_weights():
