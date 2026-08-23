@@ -59,6 +59,8 @@ def test_root_exports_disambiguated_policy_artifacts():
     assert "RALBandThresholds" in m.__all__
     assert "RALThresholdTwoBandPolicy" in m.__all__
     assert "TauPolicyArtifact" in m.__all__
+    assert "DQCResultSummary" in m.__all__
+    assert "enforce_snapping" in m.__all__
     assert "RALPolicy" not in m.__all__
     assert "TauPolicy" not in m.__all__
     assert "DQCResult" not in m.__all__
@@ -66,9 +68,12 @@ def test_root_exports_disambiguated_policy_artifacts():
     assert m.TauPolicyArtifact is TauPolicy
     assert m.RALPolicyArtifact is not None
     assert m.RALTwoBandPolicy is not None
+    assert m.DQCResultSummary is DQCResult
+    assert callable(m.enforce_snapping)
     from eb_optimization.policies import DQCResultSummary
 
     assert DQCResultSummary is DQCResult
+    assert m.DQCResultSummary is DQCResultSummary
 
 
 def test_search_and_tuning_module_exports():

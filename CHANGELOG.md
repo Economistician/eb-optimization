@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Root `__all__` exports `RALPolicyArtifact` (multiplicative RAL) alongside `RALTwoBandPolicy` and related RAL artifacts.
+- Root `__all__` exports `enforce_snapping` and `DQCResultSummary`.
 
 ### Changed
 

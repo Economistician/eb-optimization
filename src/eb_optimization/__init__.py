@@ -20,7 +20,7 @@ from .policies.cost_ratio_policy import (
     CostRatioPolicy,
     apply_cost_ratio_policy,
 )
-from .policies.dqc_policy import DEFAULT_DQC_POLICY, DQCPolicy
+from .policies.dqc_policy import DEFAULT_DQC_POLICY, DQCPolicy, DQCResultSummary, enforce_snapping
 from .policies.ral_policy import (
     DEFAULT_RAL_POLICY,
     RALBands,
@@ -61,6 +61,7 @@ __all__ = [
     "DEFAULT_TAU_POLICY",
     "CostRatioPolicy",
     "DQCPolicy",
+    "DQCResultSummary",
     "EntityCostRatioEstimate",
     "RALBandThresholds",
     "RALBands",
@@ -73,4 +74,5 @@ __all__ = [
     "apply_cost_ratio_policy",
     "apply_ral_policy",
     "apply_tau_policy",
+    "enforce_snapping",
 ]
