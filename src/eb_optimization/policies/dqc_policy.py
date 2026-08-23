@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from math import isfinite
+from math import ceil, floor, isfinite
 from typing import Any, Literal
 
 import numpy as np
@@ -78,6 +78,26 @@ class DQCResult:
 DQCResultSummary = DQCResult
 
 
+_EVAL_SNAP_MODE = {"nearest": "round", "floor": "floor", "ceil": "ceil"}
+
+
+def _snap_eval_math(values: Sequence[float], unit: float, *, mode: str) -> list[float]:
+    """Match ``eb_evaluation.diagnostics.governance.snap_to_grid`` arithmetic."""
+    snapped: list[float] = []
+    inv = 1.0 / unit
+    for v in values:
+        fv = float(v)
+        q = fv * inv
+        if mode == "ceil":
+            qi = ceil(q)
+        elif mode == "floor":
+            qi = floor(q)
+        else:
+            qi = floor(q + 0.5) if q >= 0.0 else ceil(q - 0.5)
+        snapped.append(float(qi) * unit)
+    return snapped
+
+
 def snap_to_grid(
     x: np.ndarray,
     delta: float,
@@ -86,6 +106,10 @@ def snap_to_grid(
     nonneg: bool = True,
 ) -> np.ndarray:
     """Project values onto multiples of delta.
+
+    Snapping arithmetic is the evaluation engine: ``math.ceil`` / ``math.floor``
+    and half-away-from-zero for ``nearest`` (mapped to evaluation ``round``).
+    NaNs are preserved. ``nonneg=True`` clamps after snapping.
 
     Args:
         x: Array of values to snap (may include NaNs).
@@ -99,6 +123,10 @@ def snap_to_grid(
     if not (isinstance(delta, int | float) and delta > 0.0):
         raise ValueError(f"delta must be > 0; got {delta!r}")
 
+    eval_mode = _EVAL_SNAP_MODE.get(mode)
+    if eval_mode is None:
+        raise ValueError(f"Unsupported mode: {mode!r}")
+
     x = np.asarray(x, dtype=float)
     out = np.full_like(x, np.nan, dtype=float)
 
@@ -106,16 +134,16 @@ def snap_to_grid(
     if not np.any(m):
         return out
 
-    q = x[m] / delta
+    finite = x[m].tolist()
+    try:
+        from eb_evaluation.diagnostics.governance import snap_to_grid as eval_snap
 
-    if mode == "nearest":
-        snapped = np.round(q) * delta
-    elif mode == "floor":
-        snapped = np.floor(q) * delta
-    elif mode == "ceil":
-        snapped = np.ceil(q) * delta
-    else:
-        raise ValueError(f"Unsupported mode: {mode!r}")
+        snapped = np.asarray(eval_snap(finite, float(delta), mode=eval_mode), dtype=float)
+    except ImportError:  # pragma: no cover - evaluation is optional at import
+        snapped = np.asarray(
+            _snap_eval_math(finite, float(delta), mode=eval_mode),
+            dtype=float,
+        )
 
     if nonneg:
         snapped = np.maximum(snapped, 0.0)

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Segmented `RALPolicy.adjust_forecast` uses the same replace-or-global-fallback rule as `eb-evaluation` `ReadinessAdjustmentLayer.transform`.
 - `enforce_snapping` raises when demand is `QUANTIZED`/`PACKED` but Δ* is missing or invalid, instead of returning unsnapped forecasts.
 - Evaluation helpers keep `enforce="snap"` as the only implicit default; `ignore` is explicit opt-in.
+- `snap_to_grid` uses the evaluation engine (`math.ceil` / `math.floor` / half-away-from-zero) instead of NumPy banker's rounding.
 
 ## [0.2.5] - 2026-08-22
 

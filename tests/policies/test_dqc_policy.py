@@ -42,6 +42,11 @@ def test_snap_to_grid_floor_and_ceil() -> None:
     assert np.allclose(ceil, np.array([1.0, 1.0, 2.0, 2.0]))
 
 
+def test_snap_to_grid_nearest_is_half_away_from_zero() -> None:
+    got = snap_to_grid(np.array([0.5, -1.5], dtype=float), 1.0, mode="nearest", nonneg=False)
+    np.testing.assert_allclose(got, np.array([1.0, -2.0], dtype=float))
+
+
 def test_compute_dqc_returns_unknown_when_insufficient_signal() -> None:
     # This path should not require eb-evaluation because we return early.
     policy = DQCPolicy(min_n_pos=50)
