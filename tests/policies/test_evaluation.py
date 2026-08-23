@@ -7,7 +7,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 
-from eb_optimization.policies.dqc_policy import DQCPolicy, compute_dqc
+from eb_optimization.policies.dqc_policy import compute_dqc
 from eb_optimization.policies.evaluation import evaluate_with_dqc_hr
 
 
@@ -160,11 +160,10 @@ def test_evaluate_with_dqc_hr_computes_dqc_from_y_for_dqc(
     assert called["tau"] == 2.0
 
 
-def test_evaluate_with_dqc_hr_insufficient_signal_fails_closed() -> None:
-    # Force UNKNOWN by requiring more positive samples than we provide.
-    # Enforcement must fail closed rather than treating sparse series as CONTINUOUS.
-    y_for_dqc = np.array([0.0, 0.0, 1.0, 2.0, 3.0], dtype=float)
-    strict_policy = DQCPolicy(min_n_pos=10)
+def test_evaluate_with_dqc_hr_unknown_dqc_fails_closed() -> None:
+    # Evaluation DQC returns UNKNOWN for an empty series. Enforcement must fail
+    # closed rather than treating that as CONTINUOUS.
+    y_for_dqc: list[float] = []
 
     y_true = np.array([1.0, 2.0], dtype=float)
     y_hat = np.array([1.1, 2.2], dtype=float)
@@ -176,7 +175,6 @@ def test_evaluate_with_dqc_hr_insufficient_signal_fails_closed() -> None:
             tau_units=0.5,
             dqc=None,
             y_for_dqc=y_for_dqc,
-            policy=strict_policy,
         )
 
 

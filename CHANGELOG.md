@@ -7,17 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-08-23
+
 ### Added
 
 - Root `__all__` exports `RALPolicyArtifact` (multiplicative RAL) alongside `RALTwoBandPolicy` and related RAL artifacts.
-- Root `__all__` exports `enforce_snapping` and `DQCResultSummary`.
+- Root `__all__` exports `enforce_snapping`, `DQCResultSummary`, and `compute_dqc`.
 
 ### Changed
 
 - Polished policy module docstrings to concise technical overviews.
 - Tightened README Overview; removed cloned Role section.
-- Changelog version header now matches `pyproject.toml` (`0.2.5`).
+- Changelog version header now matches `pyproject.toml` (`0.2.6`).
 - Public surfaces export `RALPolicyArtifact`, `TauPolicyArtifact`, and `DQCResultSummary` so they do not collide with `eb-evaluation` governance types.
+- `compute_dqc` delegates the full demand series to `eb_evaluation.classify_dqc` so scoring and governance share one DQC class.
+- Pinned sibling Electric Barometer packages to exact System Release 0.2.9 versions.
 
 ### Fixed
 

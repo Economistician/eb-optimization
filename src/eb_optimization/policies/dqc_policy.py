@@ -19,9 +19,9 @@ try:
 except Exception:  # pragma: no cover
     _hr_at_tau = None
 
-# Optional dependency on eb-evaluation (preferred DQC source)
+# Preferred DQC source: public evaluation root (full-series classify_dqc).
 try:  # pragma: no cover - import guard
-    from eb_evaluation.diagnostics.dqc import classify_dqc as _classify_dqc
+    from eb_evaluation import classify_dqc as _classify_dqc
 except Exception:  # pragma: no cover - import guard
     _classify_dqc = None
 
@@ -240,48 +240,41 @@ def _map_eval_dqc_to_policy_dqc(dqc: Any) -> DQCResult:
     )
 
 
+def _as_series_list(y: Any) -> list[object]:
+    """Preserve the full caller series, including zeros and non-finite cells."""
+    if isinstance(y, np.ndarray):
+        return y.tolist()
+    if isinstance(y, (list, tuple)):
+        return list(y)
+    try:
+        return list(y)
+    except TypeError:
+        return [y]
+
+
 def compute_dqc(
     y: Any,
     *,
     policy: DQCPolicy = DEFAULT_DQC_POLICY,
     use_positive_only: bool = True,
 ) -> DQCResult:
-    """Compute DQC over a realized demand series.
+    """Compute DQC by delegating the full series to ``eb_evaluation.classify_dqc``.
 
-    Preferred behavior:
-    - If `eb-evaluation` is available, this delegates to its DQC diagnostic and
-      maps the result into this module's lightweight DQCResult shape.
-
-    Backwards compatibility:
-    - This function remains so existing eb-optimization call sites keep working.
-    - New code should call `eb_evaluation.diagnostics.validate_dqc(y=...)` directly
-      and pass that DQCResult into policy functions here.
+    Classification uses the complete input series so scoring and governance
+    produce the same DQC class and grid as the evaluation diagnostic. ``policy``
+    and ``use_positive_only`` are retained for call-site compatibility; they do
+    not subset the series before classification. ``n_pos`` is copied from the
+    evaluation ``nonzero_obs`` signal.
 
     Args:
-        y: Realized demand sequence.
-        policy: Legacy DQCPolicy (only min_n_pos is used here as a conservative guard).
-        use_positive_only: If True, only y>0 are used to compute `n_pos` for the guard.
+        y: Realized demand sequence (full series).
+        policy: Legacy DQCPolicy (unused for classification).
+        use_positive_only: Unused for classification; retained for compatibility.
 
     Returns:
-        DQCResult summary.
+        DQCResult summary mapped from the evaluation diagnostic.
     """
-    # Compute n_pos for the legacy "insufficient signal" guard.
-    y_arr = np.asarray(y, dtype=float)
-    y_arr = y_arr[np.isfinite(y_arr)]
-    y_pos = y_arr[y_arr > 0.0] if use_positive_only else y_arr
-
-    n_pos = int(y_pos.size)
-    support_size = int(np.unique(np.round(y_pos, 6)).size) if n_pos else 0
-
-    if n_pos < policy.min_n_pos:
-        return DQCResult(
-            dqc_class="UNKNOWN",
-            delta_star=None,
-            rho_star=None,
-            n_pos=n_pos,
-            support_size=support_size,
-            offgrid_mad_over_delta=None,
-        )
+    del policy, use_positive_only
 
     if _classify_dqc is None:
         raise ImportError(
@@ -289,11 +282,9 @@ def compute_dqc(
             "or run DQC in the evaluation layer and pass the result into policy enforcement."
         )
 
-    # Delegate to eb-evaluation (diagnostic)
-    eval_result = _classify_dqc(y=y_pos.tolist(), thresholds=None)
+    eval_result = _classify_dqc(y=_as_series_list(y), thresholds=None)
     mapped = _map_eval_dqc_to_policy_dqc(eval_result)
-
-    # Fill in n_pos from the series guard (more informative than 0)
+    n_pos = int(getattr(eval_result.signals, "nonzero_obs", 0) or 0)
     return DQCResult(
         dqc_class=mapped.dqc_class,
         delta_star=mapped.delta_star,

@@ -47,17 +47,44 @@ def test_snap_to_grid_nearest_is_half_away_from_zero() -> None:
     np.testing.assert_allclose(got, np.array([1.0, -2.0], dtype=float))
 
 
-def test_compute_dqc_returns_unknown_when_insufficient_signal() -> None:
-    # This path should not require eb-evaluation because we return early.
+def test_compute_dqc_does_not_short_circuit_on_min_n_pos() -> None:
+    _require_eb_evaluation()
+    from eb_evaluation import classify_dqc
+
     policy = DQCPolicy(min_n_pos=50)
-    y = np.array([0, 0, 1, 2, 3, 4], dtype=float)  # only 4 positives
+    y = np.array([0, 0, 1, 2, 3, 4], dtype=float)
 
     dqc = compute_dqc(y, policy=policy, use_positive_only=True)
+    eval_dqc = classify_dqc(y.tolist())
 
-    assert dqc.dqc_class == "UNKNOWN"
-    assert dqc.delta_star is None
-    assert dqc.rho_star is None
-    assert dqc.n_pos == 4
+    expected = {
+        "continuous_like": "CONTINUOUS",
+        "quantized": "QUANTIZED",
+        "piecewise_packed": "PACKED",
+        "unknown": "UNKNOWN",
+    }[eval_dqc.dqc_class.value]
+    assert dqc.dqc_class == expected
+    assert dqc.n_pos == eval_dqc.signals.nonzero_obs == 4
+
+
+def test_compute_dqc_matches_classify_dqc_on_full_series() -> None:
+    _require_eb_evaluation()
+    from eb_evaluation import classify_dqc
+
+    y = [0.0] * 60 + [4.0] * 120 + [8.0] * 120 + [12.0] * 120 + [16.0] * 60
+    eval_dqc = classify_dqc(y)
+    dqc = compute_dqc(y)
+
+    expected = {
+        "continuous_like": "CONTINUOUS",
+        "quantized": "QUANTIZED",
+        "piecewise_packed": "PACKED",
+        "unknown": "UNKNOWN",
+    }[eval_dqc.dqc_class.value]
+    assert dqc.dqc_class == expected
+    assert dqc.delta_star == eval_dqc.signals.granularity
+    assert dqc.n_pos == eval_dqc.signals.nonzero_obs
+    assert dqc.support_size == eval_dqc.signals.support_size
 
 
 def test_enforce_snapping_unknown_fails_closed() -> None:

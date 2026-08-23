@@ -61,6 +61,8 @@ def test_root_exports_disambiguated_policy_artifacts():
     assert "TauPolicyArtifact" in m.__all__
     assert "DQCResultSummary" in m.__all__
     assert "enforce_snapping" in m.__all__
+    assert "compute_dqc" in m.__all__
+    assert callable(m.compute_dqc)
     assert "RALPolicy" not in m.__all__
     assert "TauPolicy" not in m.__all__
     assert "DQCResult" not in m.__all__
