@@ -15,12 +15,19 @@ from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
+from .policies.cost_ratio_policy import (
+    DEFAULT_COST_RATIO_POLICY,
+    CostRatioPolicy,
+    apply_cost_ratio_policy,
+)
+from .policies.dqc_policy import DEFAULT_DQC_POLICY, DQCPolicy
 from .policies.ral_policy import (
     DEFAULT_RAL_POLICY,
     RALDeltas,
     RALTwoBandPolicy,
     apply_ral_policy,
 )
+from .policies.tau_policy import DEFAULT_TAU_POLICY, TauPolicy, apply_tau_policy
 from .tuning.cost_ratio import EntityCostRatioEstimate
 
 
@@ -44,10 +51,18 @@ def _resolve_version() -> str:
 __version__ = _resolve_version()
 
 __all__ = [
+    "DEFAULT_COST_RATIO_POLICY",
+    "DEFAULT_DQC_POLICY",
     "DEFAULT_RAL_POLICY",
+    "DEFAULT_TAU_POLICY",
+    "CostRatioPolicy",
+    "DQCPolicy",
     "EntityCostRatioEstimate",
     "RALDeltas",
     "RALTwoBandPolicy",
+    "TauPolicy",
     "__version__",
+    "apply_cost_ratio_policy",
     "apply_ral_policy",
+    "apply_tau_policy",
 ]
