@@ -94,3 +94,14 @@ def test_search_and_tuning_module_exports():
     assert hasattr(tuning, "sensitivity")
     assert hasattr(tuning, "tau")
     assert hasattr(tuning, "ral")
+
+
+def test_apply_ral_policy_is_hard_deprecated():
+    import pandas as pd
+    import pytest
+
+    from eb_optimization import apply_ral_policy
+
+    df = pd.DataFrame({"yhat": [1.0, 2.0]})
+    with pytest.raises(ValueError, match=r"electric_barometer\.apply_ral"):
+        apply_ral_policy(df, "yhat")

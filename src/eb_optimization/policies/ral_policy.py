@@ -157,8 +157,23 @@ def apply_ral_policy(
     forecast_col: str,
     policy: RALPolicy = DEFAULT_RAL_POLICY,
 ) -> pd.DataFrame:
-    """Convenience functional wrapper to apply a RALPolicy."""
-    return policy.transform(df=df, forecast_col=forecast_col)
+    """Hard-deprecated ungated writer.
+
+    This wrapper applied a RAL artifact without a governance decisions table.
+    Callers must use ``electric_barometer.apply_ral`` (or ``eb_evaluation.apply_ral``)
+    with a valid decisions dataframe.
+
+    Raises
+    ------
+    ValueError
+        Always. The signature is preserved so existing imports keep resolving.
+    """
+    raise ValueError(
+        "eb_optimization.apply_ral_policy is hard-deprecated: it would apply "
+        f"{type(policy).__name__} to {forecast_col!r} without a governance "
+        f"decisions table ({len(df)} rows). Use electric_barometer.apply_ral "
+        "(or eb_evaluation.apply_ral) with a valid governance decisions dataframe."
+    )
 
 
 @dataclass(frozen=True)

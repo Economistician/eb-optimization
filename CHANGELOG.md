@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `apply_ral_policy` is hard-deprecated and always raises `ValueError`, directing callers to `electric_barometer.apply_ral` (or `eb_evaluation.apply_ral`) with a governance decisions table.
+
 ## [0.2.6] - 2026-08-23
 
 ### Added
