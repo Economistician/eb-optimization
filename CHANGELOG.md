@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Resolved Pyright argument-type errors in cost-ratio tuning tests.
+- DQC enforcement fails closed on `UNKNOWN` or insufficient positive observations instead of mapping to `CONTINUOUS`.
+- Segmented `RALPolicy.adjust_forecast` uses the same replace-or-global-fallback rule as `eb-evaluation` `ReadinessAdjustmentLayer.transform`.
 
 ## [0.2.x] - 2026-08-22
 

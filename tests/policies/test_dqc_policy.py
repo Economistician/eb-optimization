@@ -42,17 +42,33 @@ def test_snap_to_grid_floor_and_ceil() -> None:
     assert np.allclose(ceil, np.array([1.0, 1.0, 2.0, 2.0]))
 
 
-def test_compute_dqc_returns_continuous_when_insufficient_signal() -> None:
+def test_compute_dqc_returns_unknown_when_insufficient_signal() -> None:
     # This path should not require eb-evaluation because we return early.
     policy = DQCPolicy(min_n_pos=50)
     y = np.array([0, 0, 1, 2, 3, 4], dtype=float)  # only 4 positives
 
     dqc = compute_dqc(y, policy=policy, use_positive_only=True)
 
-    assert dqc.dqc_class == "CONTINUOUS"
+    assert dqc.dqc_class == "UNKNOWN"
     assert dqc.delta_star is None
     assert dqc.rho_star is None
     assert dqc.n_pos == 4
+
+
+def test_enforce_snapping_unknown_fails_closed() -> None:
+    from eb_optimization.policies.dqc_policy import DQCResult
+
+    dqc = DQCResult(
+        dqc_class="UNKNOWN",
+        delta_star=None,
+        rho_star=None,
+        n_pos=4,
+        support_size=3,
+        offgrid_mad_over_delta=None,
+    )
+    yhat = np.array([1.0, 2.0], dtype=float)
+    with pytest.raises(ValueError, match="UNKNOWN"):
+        enforce_snapping(yhat, dqc=dqc, enforce="snap")
 
 
 def test_compute_dqc_detects_packed_grid() -> None:

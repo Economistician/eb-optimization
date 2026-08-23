@@ -105,6 +105,16 @@ def test_serialization_of_global_only_policy():
     )
 
 
+def test_ral_policy_segment_uplift_replaces_global_and_falls_back() -> None:
+    """Known segments use table uplift only; unseen segments use global_uplift."""
+    uplift_table = pd.DataFrame({"segment": ["A", "B"], "uplift": [1.10, 1.20]})
+    policy = RALPolicy(global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table)
+    df = pd.DataFrame({"segment": ["A", "B", "C"], "yhat": [100.0, 100.0, 100.0]})
+
+    out = policy.adjust_forecast(df, "yhat").to_numpy(dtype=float)
+    np.testing.assert_allclose(out, np.array([110.0, 120.0, 105.0]), rtol=0.0, atol=1e-12)
+
+
 def test_two_band_policy_global_adjustment():
     df = pd.DataFrame(
         {

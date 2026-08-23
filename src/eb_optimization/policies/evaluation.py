@@ -89,9 +89,10 @@ def evaluate_with_dqc_hr(
         DQCEvaluation including the DQC result, τ in grid units, τ in y-units,
         and HR@τ.
 
-    Raises:
+        Raises:
         ImportError: If eb-metrics is not available.
-        ValueError: If enforcement mode is "raise" and forecasts are off-grid.
+        ValueError: If enforcement mode is "raise" and forecasts are off-grid,
+            or if DQC class is UNKNOWN / insufficient evidence.
     """
     if _hr_at_tau is None:  # pragma: no cover
         raise ImportError("eb-metrics is required (missing eb_metrics.metrics.service.hr_at_tau).")

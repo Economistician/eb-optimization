@@ -40,13 +40,14 @@ class RALPolicy:
 
     $$ \hat{y}^{(r)} = u \cdot \hat{y} $$
 
-    where `u` can be either:
+    where `u` is:
 
-    - a **global uplift** (`global_uplift`), applied to all rows, and/or
-    - **segment-level** uplifts stored in `uplift_table`, keyed by `segment_cols`
+    - ``global_uplift`` for a global-only policy, or
+    - the matching ``uplift_table`` row for a segmented policy, falling back to
+      ``global_uplift`` for unseen segment combinations.
 
-    Segment-level uplifts must fall back to the global uplift for unseen segment
-    combinations at application time.
+    Segment-level uplifts replace the global uplift; they are not composed with it.
+    This matches ``eb_evaluation.adjustment.ral.ReadinessAdjustmentLayer.transform``.
 
     Attributes
     ----------
@@ -85,8 +86,14 @@ class RALPolicy:
     def adjust_forecast(self, df: pd.DataFrame, forecast_col: str) -> pd.Series:
         """Apply the RAL policy to adjust the forecast values.
 
-        This method applies the global uplift to all rows, and applies segment-level uplifts
-        if the policy is segmented and matching segments exist in the `uplift_table`.
+        This method applies a single multiplicative uplift per row:
+
+        - global-only policy: ``forecast * global_uplift``
+        - segmented policy: ``forecast * segment_uplift`` for known keys, and
+          ``forecast * global_uplift`` for unseen segment combinations
+
+        Segment uplifts replace (do not compose with) the global uplift. This
+        matches ``eb_evaluation.adjustment.ral.ReadinessAdjustmentLayer.transform``.
 
         Parameters
         ----------
@@ -102,30 +109,30 @@ class RALPolicy:
         """
         # Ensure we treat the slice as a Series for arithmetic
         baseline = cast(pd.Series, df[forecast_col])
-        adjusted_forecast = cast(pd.Series, baseline * float(self.global_uplift))
+        global_u = float(self.global_uplift)
 
-        if self.is_segmented():
-            # Explicitly cast to DataFrame to resolve Pyright's None-safety check
-            table = cast(pd.DataFrame, self.uplift_table)
+        if not self.is_segmented():
+            return cast(pd.Series, baseline * global_u)
 
-            # Use pd.Index for merge keys to satisfy Axes protocol
-            merge_on = pd.Index(self.segment_cols).tolist()
+        # Explicitly cast to DataFrame to resolve Pyright's None-safety check
+        table = cast(pd.DataFrame, self.uplift_table)
 
-            # Merge uplift_table with the DataFrame based on segment columns.
-            uplift_df = df.merge(table, on=merge_on, how="left")
+        # Use pd.Index for merge keys to satisfy Axes protocol
+        merge_on = pd.Index(self.segment_cols).tolist()
 
-            # Extract the uplift column and fill missing segments with 1.0
-            multiplier_ser = cast(pd.Series, uplift_df["uplift"]).fillna(1.0)
+        # Merge uplift_table with the DataFrame based on segment columns.
+        uplift_df = df.merge(table, on=merge_on, how="left")
 
-            # Solve the reportOperatorIssue by casting to concrete numpy arrays of floats.
-            # This satisfies Pyright that the '*' operator is valid.
-            arr_baseline = cast("np.ndarray[Any, np.dtype[np.float64]]", adjusted_forecast.values)
-            arr_multiplier = cast("np.ndarray[Any, np.dtype[np.float64]]", multiplier_ser.values)
+        # Segment uplift replaces global when known; unseen segments use global.
+        # This matches eb-evaluation ReadinessAdjustmentLayer.transform.
+        uplift_raw = cast(pd.Series, uplift_df["uplift"]).to_numpy(dtype=float, copy=True)
+        missing = ~np.isfinite(uplift_raw)
+        if missing.any():
+            uplift_raw[missing] = global_u
 
-            result_raw = arr_baseline * arr_multiplier
-            return pd.Series(result_raw, index=df.index, name="readiness_forecast")
-
-        return adjusted_forecast
+        arr_baseline = cast("np.ndarray[Any, np.dtype[np.float64]]", baseline.to_numpy(dtype=float))
+        result_raw = arr_baseline * uplift_raw
+        return pd.Series(result_raw, index=df.index, name="readiness_forecast")
 
     def transform(self, df: pd.DataFrame, forecast_col: str) -> pd.DataFrame:
         """Transform the input DataFrame by applying the forecast adjustment."""

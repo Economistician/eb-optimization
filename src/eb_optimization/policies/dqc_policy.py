@@ -25,7 +25,7 @@ except Exception:  # pragma: no cover - import guard
     _classify_dqc = None
 
 
-DQCClass = Literal["CONTINUOUS", "QUANTIZED", "PACKED"]
+DQCClass = Literal["CONTINUOUS", "QUANTIZED", "PACKED", "UNKNOWN"]
 SnapMode = Literal["nearest", "floor", "ceil"]
 EnforcementMode = Literal["snap", "raise", "ignore"]
 
@@ -162,24 +162,21 @@ def _map_eval_dqc_to_policy_dqc(dqc: Any) -> DQCResult:
     """Map eb-evaluation DQCResult -> eb-optimization DQCResult summary."""
     granularity = _get_eval_granularity(dqc)
 
-    # Class mapping (eb-evaluation -> policy)
-    dqc_class: DQCClass = "CONTINUOUS"
+    # Class mapping (eb-evaluation -> policy). Unrecognized values fail closed.
     cls_val = _get_eval_class_value(dqc)
 
-    if cls_val in ("quantized",):
-        dqc_class = "QUANTIZED"
-    elif cls_val in ("piecewise_packed",):
+    if cls_val == "quantized":
+        dqc_class: DQCClass = "QUANTIZED"
+    elif cls_val == "piecewise_packed":
         dqc_class = "PACKED"
-    elif cls_val in ("continuous_like", "unknown", ""):
+    elif cls_val == "continuous_like":
         dqc_class = "CONTINUOUS"
+    elif cls_val in ("unknown", ""):
+        dqc_class = "UNKNOWN"
     else:
-        # Last resort heuristics
-        if "quant" in cls_val:
-            dqc_class = "QUANTIZED"
-        elif "pack" in cls_val:
-            dqc_class = "PACKED"
-        else:
-            dqc_class = "CONTINUOUS"
+        raise ValueError(
+            f"Unrecognized DQC class {cls_val!r}; refusing fail-open CONTINUOUS mapping."
+        )
 
     rho_star: float | None = None
     support_size: int = 0
@@ -243,7 +240,7 @@ def compute_dqc(
 
     if n_pos < policy.min_n_pos:
         return DQCResult(
-            dqc_class="CONTINUOUS",
+            dqc_class="UNKNOWN",
             delta_star=None,
             rho_star=None,
             n_pos=n_pos,
@@ -272,6 +269,16 @@ def compute_dqc(
     )
 
 
+def _require_known_dqc_class(dqc_class: DQCClass) -> DQCClass:
+    """Refuse UNKNOWN so enforcement cannot fail open to CONTINUOUS."""
+    if dqc_class == "UNKNOWN":
+        raise ValueError(
+            "DQC class is UNKNOWN (insufficient evidence or unrecognized class); "
+            "refusing fail-open CONTINUOUS enforcement."
+        )
+    return dqc_class
+
+
 def _resolve_policy_class_and_delta(dqc: Any) -> tuple[DQCClass, float | None]:
     """
     Resolve a DQCResult-like input into a policy class and Δ*.
@@ -281,17 +288,23 @@ def _resolve_policy_class_and_delta(dqc: Any) -> tuple[DQCClass, float | None]:
     - eb-evaluation DQCResult (dqc_class.value, signals.granularity)
     """
     if isinstance(dqc, DQCResult):
-        return dqc.dqc_class, dqc.delta_star
+        return _require_known_dqc_class(dqc.dqc_class), dqc.delta_star
 
     delta = _get_eval_granularity(dqc)
     cls_val = _get_eval_class_value(dqc)
 
-    # Treat eb-evaluation UNKNOWN as CONTINUOUS for enforcement (no snapping by default).
     if cls_val == "quantized":
         return "QUANTIZED", delta
     if cls_val == "piecewise_packed":
         return "PACKED", delta
-    return "CONTINUOUS", delta
+    if cls_val == "continuous_like":
+        return "CONTINUOUS", delta
+    if cls_val in ("unknown", ""):
+        raise ValueError(
+            "DQC class is UNKNOWN (insufficient evidence or unrecognized class); "
+            "refusing fail-open CONTINUOUS enforcement."
+        )
+    raise ValueError(f"Unrecognized DQC class {cls_val!r}; refusing fail-open CONTINUOUS mapping.")
 
 
 def enforce_snapping(
@@ -307,8 +320,7 @@ def enforce_snapping(
     Policy intent:
     - PACKED / QUANTIZED demand => snapping is required (unit compatibility).
     - CONTINUOUS-like demand => no snapping.
-    - UNKNOWN => no snapping unless a granularity is available (in which case
-      snapping is applied, since Δ* exists).
+    - UNKNOWN or unrecognized class => raise (fail closed).
 
     Args:
         y_hat: Forecast values.

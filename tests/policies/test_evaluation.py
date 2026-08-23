@@ -160,38 +160,24 @@ def test_evaluate_with_dqc_hr_computes_dqc_from_y_for_dqc(
     assert called["tau"] == 2.0
 
 
-def test_evaluate_with_dqc_hr_continuous_pass_through_tau_units(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    called: dict[str, object] = {}
-
-    def fake_hr_at_tau(y_true, y_hat, *, tau):  # type: ignore[no-untyped-def]
-        called["tau"] = float(tau)
-        return 0.999
-
-    _patch_eval_hr_at_tau(monkeypatch, fake_hr_at_tau)
-
-    # Force CONTINUOUS by requiring more positive samples than we provide.
-    # This ensures the compute_dqc early-return path (no eb-evaluation dependency).
+def test_evaluate_with_dqc_hr_insufficient_signal_fails_closed() -> None:
+    # Force UNKNOWN by requiring more positive samples than we provide.
+    # Enforcement must fail closed rather than treating sparse series as CONTINUOUS.
     y_for_dqc = np.array([0.0, 0.0, 1.0, 2.0, 3.0], dtype=float)
     strict_policy = DQCPolicy(min_n_pos=10)
 
     y_true = np.array([1.0, 2.0], dtype=float)
     y_hat = np.array([1.1, 2.2], dtype=float)
 
-    out = evaluate_with_dqc_hr(
-        y_true,
-        y_hat,
-        tau_units=0.5,
-        dqc=None,
-        y_for_dqc=y_for_dqc,
-        policy=strict_policy,
-    )
-
-    assert out.dqc.dqc_class == "CONTINUOUS"
-    assert out.tau_y_units == 0.5
-    assert out.hr_at_tau == 0.999
-    assert called["tau"] == 0.5
+    with pytest.raises(ValueError, match="UNKNOWN"):
+        evaluate_with_dqc_hr(
+            y_true,
+            y_hat,
+            tau_units=0.5,
+            dqc=None,
+            y_for_dqc=y_for_dqc,
+            policy=strict_policy,
+        )
 
 
 def test_evaluate_with_dqc_hr_raise_when_offgrid(monkeypatch: pytest.MonkeyPatch) -> None:
