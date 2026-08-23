@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Polished policy module docstrings to concise technical overviews.
 - Tightened README Overview; removed cloned Role section.
+- Changelog version header now matches `pyproject.toml` (`0.2.5`).
 
 ### Fixed
 
@@ -18,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DQC enforcement fails closed on `UNKNOWN` or insufficient positive observations instead of mapping to `CONTINUOUS`.
 - Segmented `RALPolicy.adjust_forecast` uses the same replace-or-global-fallback rule as `eb-evaluation` `ReadinessAdjustmentLayer.transform`.
 
-## [0.2.x] - 2026-08-22
+## [0.2.5] - 2026-08-22
 
 ### Added
 
