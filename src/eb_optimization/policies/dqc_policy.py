@@ -460,7 +460,11 @@ def hr_at_tau_grid_units(
         unit = _require_grid_delta(dqc_class, delta)
         y_hat_arr = enforce_snapping(y_hat_arr, dqc=dqc, enforce=enforce, mode=snap_mode)
         tau = float(tau_units) * unit
-    else:
+    elif dqc_class == "CONTINUOUS":
         tau = float(tau_units)
+    else:
+        raise ValueError(
+            f"DQC class is {dqc_class!r}; refusing fail-open CONTINUOUS HR@τ interpretation."
+        )
 
     return float(_hr_at_tau(y_true_arr, y_hat_arr, tau=tau))

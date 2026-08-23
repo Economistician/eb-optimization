@@ -76,6 +76,31 @@ def test_enforce_snapping_unknown_fails_closed() -> None:
         enforce_snapping(yhat, dqc=dqc, enforce="snap")
 
 
+def test_enforce_snapping_evaluation_unknown_fails_closed() -> None:
+    pytest.importorskip("eb_evaluation", reason="eb-evaluation not installed/available")
+    from eb_evaluation.diagnostics.dqc import DQCClass, DQCResult, DQCSignals
+
+    dqc = DQCResult(
+        dqc_class=DQCClass.UNKNOWN,
+        signals=DQCSignals(
+            n_obs=4,
+            nonzero_obs=4,
+            granularity=None,
+            multiple_rate=float("nan"),
+            support_size=3,
+            zero_mass=0.0,
+            small_value_mass=0.0,
+            offgrid_mad=float("nan"),
+            candidate_units=(),
+            unit_scores=(),
+        ),
+        reasons=("insufficient_nonzero_obs",),
+    )
+    yhat = np.array([1.0, 2.0], dtype=float)
+    with pytest.raises(ValueError, match="UNKNOWN"):
+        enforce_snapping(yhat, dqc=dqc, enforce="snap")
+
+
 def test_enforce_snapping_quantized_without_delta_fails_closed() -> None:
     from eb_optimization.policies.dqc_policy import DQCResult, enforce_snapping
 

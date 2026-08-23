@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `enforce_snapping` raises when demand is `QUANTIZED`/`PACKED` but Δ* is missing or invalid, instead of returning unsnapped forecasts.
 - Evaluation helpers keep `enforce="snap"` as the only implicit default; `ignore` is explicit opt-in.
 - `snap_to_grid` uses the evaluation engine (`math.ceil` / `math.floor` / half-away-from-zero) instead of NumPy banker's rounding.
+- `hr_at_tau_grid_units` interprets τ in raw units only for `CONTINUOUS` demand; `UNKNOWN` remains a raised fail-closed error.
 
 ## [0.2.5] - 2026-08-22
 
