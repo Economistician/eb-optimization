@@ -1,24 +1,8 @@
-"""Policy-composed evaluation entrypoints for Electric Barometer.
+"""Policy-composed evaluation entrypoints.
 
-This module provides "blessed" evaluation functions that compose multiple policy
-artifacts into a single, decision-safe call. The intent is to make correct
-evaluation easy to use and hard to misuse.
-
-Primary responsibilities:
-- Provide a stable API for evaluation that downstream code can depend on.
-- Enforce structural compatibility rules (e.g., DQC snapping for packed demand).
-- Interpret tolerance parameters in the correct unit space (e.g., grid units).
-- Delegate metric primitives to eb-metrics after applying policy semantics.
-
-This module is intentionally small. It does not implement forecasting models,
-data adapters, or tuning routines.
-
-DQC note
---------
-DQC *detection/classification* lives in `eb-evaluation` diagnostics.
-This module consumes a DQCResult-like object (either eb-evaluation or the
-eb-optimization summary shape) and applies enforcement + unit semantics via
-`eb_optimization.policies.dqc_policy`.
+Compose frozen policies into decision-safe calls (DQC snap + τ in grid units),
+delegating metric primitives to ``eb-metrics``. DQC classification lives in
+``eb-evaluation``; this module applies enforcement via ``dqc_policy``.
 """
 
 from __future__ import annotations

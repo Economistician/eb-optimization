@@ -1,23 +1,7 @@
-"""Demand Quantization Compatibility (DQC) policy and snapping enforcement.
+"""DQC policy: snap forecasts to Δ* and interpret τ in grid units.
 
-This module defines the governance logic required to correctly evaluate forecasts
-when realized demand is quantized or unit-packed.
-
-Important
----------
-In EB, DQC itself is a *diagnostic* (classification + signals) and lives in
-`eb-evaluation`. This module is *policy*: it consumes a DQC result and enforces
-unit-compatibility (snapping) and grid-unit tolerance interpretation.
-
-Key responsibilities:
-- Enforce unit compatibility by snapping forecasts to the DQC-inferred grid.
-- Interpret evaluation tolerances (τ) in grid units rather than raw numeric units.
-- Provide a small set of enforcement modes suitable for governance/policy layers.
-
-This module does not define forecasting models or metric primitives. Instead, it
-provides policy-level wrappers that ensure evaluation metrics operate in a valid
-unit space. When demand is packed or quantized, unsnapped evaluation can be made
-invalid; policy decides whether to correct (snap), reject (raise), or ignore.
+Consumes a DQC diagnostic result from ``eb-evaluation`` and enforces
+snap / raise / ignore modes for packed or quantized demand.
 """
 
 from __future__ import annotations

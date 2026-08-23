@@ -1,40 +1,8 @@
-"""
-Frozen policy artifacts for the Electric Barometer optimization layer.
+"""Frozen runtime policies (τ, cost ratio, RAL, DQC enforcement).
 
-The `eb_optimization.policies` package contains **governance-level, immutable
-configuration objects** that define how tuned parameters are selected and applied
-at runtime.
-
-Design principles
------------------
-- Policies are **frozen** (dataclass(frozen=True)) and versionable
-- Policies contain **no learning or tuning logic**
-- Policies wrap tuning utilities with deterministic application semantics
-- Policies are safe to ship to production systems
-
-Layering
---------
-- tuning/    : derives parameters from data (calibration, grid search)
-- policies/  : freezes configuration + applies tuning deterministically
-- runtime    : consumes policy outputs only (no re-tuning)
-
-Exported policies
------------------
-- Tau (τ) tolerance governance for HR@τ
-- Cost-ratio (R = c_u / c_o) governance for asymmetric loss
-- RAL policy governance (readiness adjustment layer)
-- DQC (Δ*) enforcement for packed / quantized demand snapping and evaluation
-
-DQC note
---------
-DQC *detection/classification* lives in `eb-evaluation` diagnostics.
-Preferred usage:
-- run `eb_evaluation.diagnostics.validate_dqc(y=...)`
-- pass that DQCResult into `enforce_snapping` / `hr_at_tau_grid_units`
-  (or policy-composed `evaluate_with_dqc_hr`)
-
-The `compute_dqc` helper exported here is kept for backwards compatibility and
-delegates to eb-evaluation when available.
+Immutable configuration objects with no learning logic. Prefer
+``eb_evaluation.diagnostics.validate_dqc`` then ``enforce_snapping`` /
+``evaluate_with_dqc_hr``; ``compute_dqc`` remains for compatibility.
 """
 
 from __future__ import annotations

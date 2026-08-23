@@ -1,12 +1,7 @@
-"""
-Tau (τ) policy artifacts for eb-optimization.
+"""Frozen τ policy for HR@τ estimation and application.
 
-This module defines *frozen governance* for selecting a tolerance τ used by HR@τ.
-
-- tuning/tau.py: calibration logic (estimating τ from residuals)
-- policies/tau_policy.py: frozen configuration + deterministic application wrappers
-
-Policies should be stable, auditable, and safe to apply at runtime.
+Calibration lives in ``tuning/tau.py``; this module freezes configuration and
+applies it deterministically at runtime.
 """
 
 from __future__ import annotations
@@ -28,17 +23,11 @@ from eb_optimization.tuning.tau import (
 
 @dataclass(frozen=True)
 class TauPolicy:
-    """
-    Frozen τ policy configuration.
+    """Immutable τ configuration for HR@τ estimation and application.
 
-    This is the governance object you can persist, version, and ship to downstream
-    consumers.
-
-    Notes
-    -----
-    - `estimate_kwargs` are passed through to `estimate_tau`.
-    - If `cap_with_global` is True, entity τ values are capped by a global cap
-      derived from the full residual distribution at `global_cap_quantile`.
+    ``estimate_kwargs`` are passed through to ``estimate_tau``. When
+    ``cap_with_global`` is True, entity τ values are capped by a global residual
+    quantile at ``global_cap_quantile``.
     """
 
     method: TauMethod = "target_hit_rate"

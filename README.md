@@ -11,19 +11,7 @@ Decision and policy layer for the Electric Barometer ecosystem, responsible for 
 
 ## Overview
 
-This repository contains the optimization, tuning, and policy governance layer of the Electric Barometer ecosystem. It defines how key evaluation parameters—such as cost ratios, tolerances, and readiness controls—are selected from data, validated under governance rules, and formalized into deterministic policies that can be reused across systems and environments.
-
-Rather than computing metrics or running evaluations, this repository focuses on decision logic: how parameters are calibrated, how tradeoffs are resolved, and how those decisions are frozen into auditable artifacts. It provides the bridge between metric theory and operational deployment, ensuring that forecast evaluation behavior is consistent, explainable, and governed by explicit intent rather than ad-hoc configuration.
-
----
-
-## Role in the Electric Barometer Ecosystem
-
-`eb-optimization` defines the parameter selection, calibration, and governance logic used throughout the Electric Barometer ecosystem. It is responsible for determining how key operational parameters—such as cost ratios, tolerance bands, and readiness controls—are selected from data in a disciplined, reproducible, and decision-aware manner.
-
-This repository focuses exclusively on optimization mechanics and policy formation. It does not define metric primitives, perform evaluation orchestration, manage model interfaces, or execute runtime decision logic. Those responsibilities are handled by adjacent layers in the ecosystem that compute metrics, evaluate forecasts, or apply frozen policies in production workflows.
-
-By separating parameter selection and governance from metric semantics and execution concerns, eb-optimization provides a stable optimization layer that enables consistent calibration, transparent decision rules, and auditable policy artifacts across heterogeneous forecasting and operational contexts.
+`eb-optimization` calibrates operational parameters (cost ratios, τ, readiness controls) and freezes them into auditable runtime policies. It does not compute metrics or run evaluation panels; those belong to `eb-metrics` and `eb-evaluation`.
 
 ---
 
