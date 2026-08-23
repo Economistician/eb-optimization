@@ -28,6 +28,10 @@ class TauPolicy:
     ``estimate_kwargs`` are passed through to ``estimate_tau``. When
     ``cap_with_global`` is True, entity τ values are capped by a global residual
     quantile at ``global_cap_quantile``.
+
+    The public export name is :data:`TauPolicyArtifact`. That alias avoids colliding
+    with ``eb_evaluation.TauPolicy``, which is a governance *enum* (raw vs grid
+    units), not a frozen τ-calibration artifact.
     """
 
     method: TauMethod = "target_hit_rate"
@@ -48,6 +52,9 @@ class TauPolicy:
                 f"global_cap_quantile must be in (0, 1]. Got {self.global_cap_quantile}."
             )
 
+
+# Public name that does not collide with eb_evaluation.TauPolicy (governance enum).
+TauPolicyArtifact = TauPolicy
 
 # ----------------------------------------------------------------------
 # Default, exported policy
@@ -136,6 +143,7 @@ def apply_entity_tau_policy(
 __all__ = [
     "DEFAULT_TAU_POLICY",
     "TauPolicy",
+    "TauPolicyArtifact",
     "apply_entity_tau_policy",
     "apply_tau_policy",
     "apply_tau_policy_hr",

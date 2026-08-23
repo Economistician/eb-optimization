@@ -11,8 +11,11 @@ def test_policies_public_api_imports():
         DEFAULT_COST_RATIO_POLICY,
         DEFAULT_RAL_POLICY,
         CostRatioPolicy,
-        RALPolicy,
-        TauPolicy,
+        DQCResultSummary,
+        RALPolicyArtifact,
+        RALTwoBandPolicy,
+        TauPolicyArtifact,
+        __all__ as policies_all,
         apply_cost_ratio_policy,
         apply_entity_cost_ratio_policy,
         apply_entity_tau_policy,
@@ -22,7 +25,9 @@ def test_policies_public_api_imports():
     )
 
     # Touch symbols so linters/optimizers can't "optimize away" imports
-    assert TauPolicy and CostRatioPolicy and RALPolicy
+    assert TauPolicyArtifact and CostRatioPolicy and RALPolicyArtifact
+    assert RALTwoBandPolicy is not None
+    assert DQCResultSummary is not None
     assert DEFAULT_COST_RATIO_POLICY is not None
     assert DEFAULT_RAL_POLICY is not None
     assert callable(apply_tau_policy)
@@ -31,6 +36,39 @@ def test_policies_public_api_imports():
     assert callable(apply_cost_ratio_policy)
     assert callable(apply_entity_cost_ratio_policy)
     assert callable(apply_ral_policy)
+    assert "RALPolicy" not in policies_all
+    assert "TauPolicy" not in policies_all
+    assert "DQCResult" not in policies_all
+    assert "RALPolicyArtifact" in policies_all
+    assert "TauPolicyArtifact" in policies_all
+    assert "DQCResultSummary" in policies_all
+    assert "RALTwoBandPolicy" in policies_all
+
+
+def test_root_exports_disambiguated_policy_artifacts():
+    """Root exports use artifact names that do not collide with eb-evaluation."""
+    import eb_optimization as m
+    from eb_optimization.policies.dqc_policy import DQCResult
+    from eb_optimization.policies.ral_policy import RALPolicy
+    from eb_optimization.policies.tau_policy import TauPolicy
+
+    assert "RALPolicyArtifact" in m.__all__
+    assert "RALTwoBandPolicy" in m.__all__
+    assert "RALDeltas" in m.__all__
+    assert "RALBands" in m.__all__
+    assert "RALBandThresholds" in m.__all__
+    assert "RALThresholdTwoBandPolicy" in m.__all__
+    assert "TauPolicyArtifact" in m.__all__
+    assert "RALPolicy" not in m.__all__
+    assert "TauPolicy" not in m.__all__
+    assert "DQCResult" not in m.__all__
+    assert m.RALPolicyArtifact is RALPolicy
+    assert m.TauPolicyArtifact is TauPolicy
+    assert m.RALPolicyArtifact is not None
+    assert m.RALTwoBandPolicy is not None
+    from eb_optimization.policies import DQCResultSummary
+
+    assert DQCResultSummary is DQCResult
 
 
 def test_search_and_tuning_module_exports():

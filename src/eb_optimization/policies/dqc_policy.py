@@ -60,6 +60,8 @@ class DQCResult:
     - `delta_star` is the inferred grid (Δ*) in y-units.
     - This is a lightweight summary shape used by eb-optimization policy code.
     - When using eb-evaluation DQC, `delta_star` maps to `signals.granularity`.
+    - The public export name is :data:`DQCResultSummary`. That alias avoids colliding
+      with ``eb_evaluation.DQCResult``, which is the full diagnostic result.
     """
 
     dqc_class: DQCClass
@@ -70,6 +72,10 @@ class DQCResult:
     n_pos: int
     support_size: int
     offgrid_mad_over_delta: float | None
+
+
+# Public name that does not collide with eb_evaluation.DQCResult (diagnostic result).
+DQCResultSummary = DQCResult
 
 
 def snap_to_grid(

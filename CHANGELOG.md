@@ -7,11 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Root `__all__` exports `RALPolicyArtifact` (multiplicative RAL) alongside `RALTwoBandPolicy` and related RAL artifacts.
+
 ### Changed
 
 - Polished policy module docstrings to concise technical overviews.
 - Tightened README Overview; removed cloned Role section.
 - Changelog version header now matches `pyproject.toml` (`0.2.5`).
+- Public surfaces export `RALPolicyArtifact`, `TauPolicyArtifact`, and `DQCResultSummary` so they do not collide with `eb-evaluation` governance types.
 
 ### Fixed
 

@@ -23,11 +23,15 @@ from .policies.cost_ratio_policy import (
 from .policies.dqc_policy import DEFAULT_DQC_POLICY, DQCPolicy
 from .policies.ral_policy import (
     DEFAULT_RAL_POLICY,
+    RALBands,
+    RALBandThresholds,
     RALDeltas,
+    RALPolicyArtifact,
+    RALThresholdTwoBandPolicy,
     RALTwoBandPolicy,
     apply_ral_policy,
 )
-from .policies.tau_policy import DEFAULT_TAU_POLICY, TauPolicy, apply_tau_policy
+from .policies.tau_policy import DEFAULT_TAU_POLICY, TauPolicyArtifact, apply_tau_policy
 from .tuning.cost_ratio import EntityCostRatioEstimate
 
 
@@ -58,9 +62,13 @@ __all__ = [
     "CostRatioPolicy",
     "DQCPolicy",
     "EntityCostRatioEstimate",
+    "RALBandThresholds",
+    "RALBands",
     "RALDeltas",
+    "RALPolicyArtifact",
+    "RALThresholdTwoBandPolicy",
     "RALTwoBandPolicy",
-    "TauPolicy",
+    "TauPolicyArtifact",
     "__version__",
     "apply_cost_ratio_policy",
     "apply_ral_policy",

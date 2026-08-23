@@ -69,6 +69,10 @@ class RALPolicy:
 
     The policy does *not* encode metric definitions or optimization state—only the
     artifacts needed to execute the adjustment.
+
+    The public export name is :data:`RALPolicyArtifact`. That alias avoids colliding
+    with ``eb_evaluation.RALPolicy``, which is a governance *enum* (allow / disallow),
+    not a multiplicative uplift artifact.
     """
 
     global_uplift: float = 1.0
@@ -140,6 +144,9 @@ class RALPolicy:
         df_copy["readiness_forecast"] = self.adjust_forecast(df_copy, forecast_col)
         return df_copy
 
+
+# Public name that does not collide with eb_evaluation.RALPolicy (governance enum).
+RALPolicyArtifact = RALPolicy
 
 # Convenience default policy instance
 DEFAULT_RAL_POLICY = RALPolicy()
