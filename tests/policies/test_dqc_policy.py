@@ -71,6 +71,48 @@ def test_enforce_snapping_unknown_fails_closed() -> None:
         enforce_snapping(yhat, dqc=dqc, enforce="snap")
 
 
+def test_enforce_snapping_quantized_without_delta_fails_closed() -> None:
+    from eb_optimization.policies.dqc_policy import DQCResult, enforce_snapping
+
+    dqc = DQCResult(
+        dqc_class="QUANTIZED",
+        delta_star=None,
+        rho_star=1.0,
+        n_pos=80,
+        support_size=4,
+        offgrid_mad_over_delta=0.0,
+    )
+    yhat = np.array([1.1, 2.2], dtype=float)
+    with pytest.raises(ValueError, match=r"delta_star|granularity"):
+        enforce_snapping(yhat, dqc=dqc, enforce="snap")
+
+
+def test_enforce_snapping_packed_invalid_delta_fails_closed() -> None:
+    from eb_optimization.policies.dqc_policy import DQCResult, enforce_snapping
+
+    dqc = DQCResult(
+        dqc_class="PACKED",
+        delta_star=0.0,
+        rho_star=1.0,
+        n_pos=80,
+        support_size=4,
+        offgrid_mad_over_delta=0.0,
+    )
+    yhat = np.array([1.1, 2.2], dtype=float)
+    with pytest.raises(ValueError, match=r"delta_star|granularity"):
+        enforce_snapping(yhat, dqc=dqc, enforce="snap")
+
+
+def test_evaluate_helpers_default_enforce_is_snap() -> None:
+    import inspect
+
+    from eb_optimization.policies.dqc_policy import enforce_snapping
+    from eb_optimization.policies.evaluation import evaluate_with_dqc_hr
+
+    assert inspect.signature(enforce_snapping).parameters["enforce"].default == "snap"
+    assert inspect.signature(evaluate_with_dqc_hr).parameters["enforce"].default == "snap"
+
+
 def test_compute_dqc_detects_packed_grid() -> None:
     _require_eb_evaluation()
 

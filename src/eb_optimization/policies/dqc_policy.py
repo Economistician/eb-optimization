@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any, Literal
 
 import numpy as np
@@ -279,6 +280,30 @@ def _require_known_dqc_class(dqc_class: DQCClass) -> DQCClass:
     return dqc_class
 
 
+def _require_grid_delta(dqc_class: DQCClass, delta: float | None) -> float:
+    """Require a usable Δ* whenever snapping is required."""
+    if dqc_class not in ("QUANTIZED", "PACKED"):
+        raise ValueError(f"Grid delta is only required for QUANTIZED/PACKED; got {dqc_class!r}.")
+    if delta is None:
+        raise ValueError(
+            f"DQC class is {dqc_class} but delta_star/granularity is missing; "
+            "refusing fail-open unsnapped forecasts."
+        )
+    try:
+        value = float(delta)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"DQC class is {dqc_class} but delta_star/granularity is invalid ({delta!r}); "
+            "refusing fail-open unsnapped forecasts."
+        ) from exc
+    if not isfinite(value) or value <= 0.0:
+        raise ValueError(
+            f"DQC class is {dqc_class} but delta_star/granularity must be finite and > 0; "
+            f"got {delta!r}."
+        )
+    return value
+
+
 def _resolve_policy_class_and_delta(dqc: Any) -> tuple[DQCClass, float | None]:
     """
     Resolve a DQCResult-like input into a policy class and Δ*.
@@ -321,29 +346,37 @@ def enforce_snapping(
     - PACKED / QUANTIZED demand => snapping is required (unit compatibility).
     - CONTINUOUS-like demand => no snapping.
     - UNKNOWN or unrecognized class => raise (fail closed).
+    - PACKED / QUANTIZED with missing or invalid Δ* => raise (fail closed).
 
     Args:
         y_hat: Forecast values.
         dqc: DQCResult-like object (preferred: eb-evaluation DQCResult) OR this module's DQCResult.
-        enforce: "snap" (default), "raise" (error if off-grid), "ignore".
+        enforce: "snap" (default), "raise" (error if off-grid), or explicit "ignore".
+            ``ignore`` is never the default; callers must opt in.
         mode: Snapping mode (if enforce == "snap").
         tol: Absolute tolerance for off-grid checks (used when enforce == "raise").
 
     Returns:
         Forecast array, snapped or unchanged depending on class and enforcement.
+
+    Raises:
+        ValueError: If class is UNKNOWN, unrecognized, or QUANTIZED/PACKED without a
+            finite positive Δ*.
     """
     y_hat_arr = np.asarray(y_hat, dtype=float)
 
     dqc_class, delta = _resolve_policy_class_and_delta(dqc)
 
-    if dqc_class == "CONTINUOUS" or delta is None:
+    if dqc_class == "CONTINUOUS":
         return y_hat_arr
+
+    unit = _require_grid_delta(dqc_class, delta)
 
     if enforce == "ignore":
         return y_hat_arr
 
     if enforce == "raise":
-        snapped = snap_to_grid(y_hat_arr, float(delta), mode="nearest", nonneg=True)
+        snapped = snap_to_grid(y_hat_arr, unit, mode="nearest", nonneg=True)
         offgrid = np.isfinite(y_hat_arr) & (np.abs(y_hat_arr - snapped) > tol)
         if bool(np.any(offgrid)):
             raise ValueError(
@@ -353,7 +386,7 @@ def enforce_snapping(
         return y_hat_arr
 
     if enforce == "snap":
-        return snap_to_grid(y_hat_arr, float(delta), mode=mode, nonneg=True)
+        return snap_to_grid(y_hat_arr, unit, mode=mode, nonneg=True)
 
     raise ValueError(f"Unsupported enforce mode: {enforce!r}")
 
@@ -389,9 +422,10 @@ def hr_at_tau_grid_units(
 
     dqc_class, delta = _resolve_policy_class_and_delta(dqc)
 
-    if dqc_class in ("PACKED", "QUANTIZED") and delta is not None:
+    if dqc_class in ("PACKED", "QUANTIZED"):
+        unit = _require_grid_delta(dqc_class, delta)
         y_hat_arr = enforce_snapping(y_hat_arr, dqc=dqc, enforce=enforce, mode=snap_mode)
-        tau = float(tau_units) * float(delta)
+        tau = float(tau_units) * unit
     else:
         tau = float(tau_units)
 
