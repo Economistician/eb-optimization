@@ -20,17 +20,23 @@ def _require_eb_evaluation() -> None:
     pytest.importorskip("eb_evaluation", reason="eb-evaluation not installed/available")
 
 
-def test_snap_to_grid_nearest_preserves_nan_and_nonneg() -> None:
-    x = np.array([np.nan, -0.2, 0.2, 0.49, 0.51, 1.49, 1.51], dtype=float)
+def test_snap_to_grid_nearest_clamps_nonneg() -> None:
+    x = np.array([-0.2, 0.2, 0.49, 0.51, 1.49, 1.51], dtype=float)
     got = snap_to_grid(x, 0.5, mode="nearest", nonneg=True)
 
-    assert np.isnan(got[0])
-    assert got[1] == 0.0  # clamped
-    assert got[2] == 0.0
+    assert got[0] == 0.0  # clamped
+    assert got[1] == 0.0
+    assert got[2] == 0.5
     assert got[3] == 0.5
-    assert got[4] == 0.5
+    assert got[4] == 1.5
     assert got[5] == 1.5
-    assert got[6] == 1.5
+
+
+def test_snap_to_grid_rejects_nan_and_inf() -> None:
+    with pytest.raises(ValueError, match="finite"):
+        snap_to_grid(np.array([1.0, np.nan], dtype=float), 0.5, mode="nearest")
+    with pytest.raises(ValueError, match="finite"):
+        snap_to_grid(np.array([1.0, np.inf], dtype=float), 0.5, mode="nearest")
 
 
 def test_snap_to_grid_floor_and_ceil() -> None:
@@ -195,11 +201,20 @@ def test_enforce_snapping_snap_for_packed() -> None:
     dqc = compute_dqc(y, policy=DEFAULT_DQC_POLICY)
 
     # Off-grid forecasts should be snapped
-    yhat = np.array([1.1, 2.9, 4.2, np.nan], dtype=float)
+    yhat = np.array([1.1, 2.9, 4.2, 5.1], dtype=float)
     got = enforce_snapping(yhat, dqc=dqc, enforce="snap", mode="nearest")
 
-    assert np.allclose(got[:3], np.array([2.0, 2.0, 4.0]))
-    assert np.isnan(got[3])
+    assert np.allclose(got, np.array([2.0, 2.0, 4.0, 6.0]))
+
+
+def test_enforce_snapping_rejects_nan_when_snap_required() -> None:
+    _require_eb_evaluation()
+    y = np.tile(np.array([2.0, 4.0, 6.0, 8.0], dtype=float), 100)
+    dqc = compute_dqc(y, policy=DEFAULT_DQC_POLICY)
+    with pytest.raises(ValueError, match="finite"):
+        enforce_snapping(
+            np.array([1.1, np.nan], dtype=float), dqc=dqc, enforce="snap", mode="nearest"
+        )
 
 
 def test_enforce_snapping_raise_when_offgrid() -> None:
@@ -222,11 +237,10 @@ def test_enforce_snapping_accepts_eb_evaluation_dqc_result() -> None:
     y = np.tile(np.array([2.0, 4.0, 6.0, 8.0], dtype=float), 100)
     eval_dqc = validate_dqc(y=y.tolist())
 
-    yhat = np.array([1.1, 2.9, 4.2, np.nan], dtype=float)
+    yhat = np.array([1.1, 2.9, 4.2, 5.1], dtype=float)
     got = enforce_snapping(yhat, dqc=eval_dqc, enforce="snap", mode="nearest")
 
-    assert np.allclose(got[:3], np.array([2.0, 2.0, 4.0]))
-    assert np.isnan(got[3])
+    assert np.allclose(got, np.array([2.0, 2.0, 4.0, 6.0]))
 
 
 def test_hr_at_tau_grid_units_delegates_and_snaps(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -13,6 +13,10 @@ from eb_optimization.policies.ral_policy import (
 )
 
 
+def _approved(df: pd.DataFrame) -> pd.Series:
+    return pd.Series(True, index=df.index)
+
+
 # Test: Initialization with global uplift and segment-level uplifts
 def test_initialization_with_segmented_policy():
     # Sample segment data
@@ -111,8 +115,37 @@ def test_ral_policy_segment_uplift_replaces_global_and_falls_back() -> None:
     policy = RALPolicy(global_uplift=1.05, segment_cols=["segment"], uplift_table=uplift_table)
     df = pd.DataFrame({"segment": ["A", "B", "C"], "yhat": [100.0, 100.0, 100.0]})
 
-    out = policy.adjust_forecast(df, "yhat").to_numpy(dtype=float)
+    out = policy.adjust_forecast(df, "yhat", apply_mask=_approved(df)).to_numpy(dtype=float)
     np.testing.assert_allclose(out, np.array([110.0, 120.0, 105.0]), rtol=0.0, atol=1e-12)
+
+
+def test_ral_policy_adjust_forecast_requires_governance() -> None:
+    policy = RALPolicy(global_uplift=1.05)
+    two_band = RALTwoBandPolicy(global_deltas=RALDeltas(d_mid=0.02, d_high=0.01))
+    threshold = RALThresholdTwoBandPolicy(
+        global_thresholds=RALBandThresholds(mid=0.75, high=0.85),
+        global_deltas=RALDeltas(d_mid=0.0, d_high=0.10),
+    )
+    df = pd.DataFrame({"yhat": [1.0, 2.0]})
+    unapproved = pd.DataFrame(
+        {
+            "ral_policy": ["disallow"],
+            "status": ["red"],
+            "fas_class": ["blocked"],
+            "dqc_class": ["unknown"],
+            "snap_required": [False],
+        }
+    )
+    with pytest.raises(ValueError, match=r"electric_barometer\.apply_ral"):
+        policy.adjust_forecast(df, "yhat")
+    with pytest.raises(ValueError, match=r"electric_barometer\.apply_ral"):
+        policy.transform(df, "yhat")
+    with pytest.raises(ValueError, match=r"electric_barometer\.apply_ral"):
+        two_band.transform(df, "yhat")
+    with pytest.raises(ValueError, match=r"electric_barometer\.apply_ral"):
+        threshold.transform(df, "yhat")
+    with pytest.raises(ValueError, match=r"electric_barometer\.apply_ral"):
+        policy.adjust_forecast(df, "yhat", decisions=unapproved)
 
 
 def test_two_band_policy_global_adjustment():
@@ -123,7 +156,7 @@ def test_two_band_policy_global_adjustment():
     )
     policy = RALTwoBandPolicy(global_deltas=RALDeltas(d_mid=0.02, d_high=0.01))
 
-    out = policy.adjust_forecast(df, "yhat")
+    out = policy.adjust_forecast(df, "yhat", apply_mask=_approved(df))
 
     expected = np.array([0.70, 0.78, 0.86, 0.86, 0.91], dtype=float)
     assert out.name == "readiness_forecast"
@@ -145,7 +178,9 @@ def test_two_band_policy_per_key_override_and_fallback():
         },
     )
 
-    out = policy.adjust_forecast(df, "yhat", key_col="interface").to_numpy(dtype=float)
+    out = policy.adjust_forecast(
+        df, "yhat", key_col="interface", apply_mask=_approved(df)
+    ).to_numpy(dtype=float)
 
     # A: 0.76 -> +0.02 = 0.78 (mid band), 0.86 -> +0.00 = 0.86 (high band but d_high=0.00)
     # B: 0.76 -> +0.00 = 0.76 (mid band but d_mid=0.00), 0.86 -> +0.02 = 0.88 (high band)
@@ -159,7 +194,7 @@ def test_two_band_policy_missing_key_col_raises():
     policy = RALTwoBandPolicy(global_deltas=RALDeltas(d_mid=0.01, d_high=0.01))
 
     with pytest.raises(ValueError):
-        policy.adjust_forecast(df, "yhat", key_col="interface")
+        policy.adjust_forecast(df, "yhat", key_col="interface", apply_mask=_approved(df))
 
 
 def test_threshold_two_band_policy_global_adjustment():
@@ -169,7 +204,7 @@ def test_threshold_two_band_policy_global_adjustment():
         global_deltas=RALDeltas(d_mid=0.02, d_high=0.01),
     )
 
-    out = policy.adjust_forecast(df, "yhat")
+    out = policy.adjust_forecast(df, "yhat", apply_mask=_approved(df))
 
     # mid: >=0.70 and <0.84 gets +0.02; high: >=0.84 gets +0.01
     expected = np.array([0.69, 0.72, 0.85, 0.85, 0.89], dtype=float)
@@ -200,7 +235,9 @@ def test_threshold_two_band_policy_per_key_thresholds_and_deltas_with_fallback()
         },
     )
 
-    out = policy.adjust_forecast(df, "yhat", key_col="interface").to_numpy(dtype=float)
+    out = policy.adjust_forecast(
+        df, "yhat", key_col="interface", apply_mask=_approved(df)
+    ).to_numpy(dtype=float)
 
     # A thresholds: mid=0.75, high=0.80; deltas: d_mid=0.02, d_high=0.00
     #   0.74 -> low => 0.74
@@ -225,7 +262,7 @@ def test_threshold_two_band_policy_missing_key_col_raises():
     )
 
     with pytest.raises(ValueError):
-        policy.adjust_forecast(df, "yhat", key_col="interface")
+        policy.adjust_forecast(df, "yhat", key_col="interface", apply_mask=_approved(df))
 
 
 def test_threshold_two_band_policy_serialization_roundtrip():
@@ -309,13 +346,16 @@ def test_threshold_two_band_policy_adjust_forecast_capped_caps_upper_and_lower()
         per_key_deltas={"A": RALDeltas(d_mid=0.0, d_high=0.30)},
     )
 
-    uncapped = policy.adjust_forecast(df, "yhat", key_col="interface").to_numpy(dtype=float)
+    uncapped = policy.adjust_forecast(
+        df, "yhat", key_col="interface", apply_mask=_approved(df)
+    ).to_numpy(dtype=float)
     capped = policy.adjust_forecast_capped(
         df,
         "yhat",
         key_col="interface",
         lower=0.0,
         upper=1.0,
+        apply_mask=_approved(df),
     ).to_numpy(dtype=float)
 
     # Uncapped:
@@ -336,8 +376,10 @@ def test_threshold_two_band_policy_adjust_forecast_capped_upper_none_disables_up
         global_deltas=RALDeltas(d_mid=0.0, d_high=0.30),
     )
 
-    uncapped = policy.adjust_forecast(df, "yhat").to_numpy(dtype=float)
-    capped_no_upper = policy.adjust_forecast_capped(df, "yhat", upper=None).to_numpy(dtype=float)
+    uncapped = policy.adjust_forecast(df, "yhat", apply_mask=_approved(df)).to_numpy(dtype=float)
+    capped_no_upper = policy.adjust_forecast_capped(
+        df, "yhat", upper=None, apply_mask=_approved(df)
+    ).to_numpy(dtype=float)
 
     np.testing.assert_allclose(uncapped, np.array([1.20], dtype=float), rtol=0.0, atol=1e-12)
     np.testing.assert_allclose(capped_no_upper, uncapped, rtol=0.0, atol=1e-12)

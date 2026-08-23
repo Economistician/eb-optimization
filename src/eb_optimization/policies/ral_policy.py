@@ -27,6 +27,75 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
+_REQUIRED_DECISION_COLUMNS = (
+    "ral_policy",
+    "status",
+    "fas_class",
+    "dqc_class",
+    "snap_required",
+)
+_UNAPPROVED_RAL = ("disallow", "")
+_UNAPPROVED_STATUS = ("red", "")
+_UNAPPROVED_DQC = ("unknown", "")
+_UNAPPROVED_FAS = ("blocked", "")
+_APPLY_RAL_REDIRECT = (
+    "Use electric_barometer.apply_ral (or eb_evaluation.apply_ral) with a "
+    "valid governance decisions dataframe."
+)
+
+
+def _decision_token(value: object) -> str:
+    if value is None:
+        return ""
+    try:
+        if bool(pd.isna(value)):
+            return ""
+    except (ValueError, TypeError):
+        pass
+    raw = getattr(value, "value", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip().lower()
+    return str(value).strip().lower().rsplit(".", 1)[-1]
+
+
+def _require_approved_governance(
+    *,
+    decisions: pd.DataFrame | None,
+    apply_mask: pd.Series | None,
+    context: str,
+) -> None:
+    """Refuse ungated artifact writes unless a decisions table or mask is approved."""
+    if decisions is None and apply_mask is None:
+        raise ValueError(
+            f"{context} requires a valid governance decisions table or apply_mask. "
+            f"{_APPLY_RAL_REDIRECT}"
+        )
+    if apply_mask is not None and (
+        bool(pd.isna(apply_mask).any()) or not bool(apply_mask.to_numpy(dtype=bool).all())
+    ):
+        raise ValueError(f"{context} apply_mask is unapproved. {_APPLY_RAL_REDIRECT}")
+    if decisions is None:
+        return
+    if decisions.empty:
+        raise ValueError(f"{context} decisions are missing or empty. {_APPLY_RAL_REDIRECT}")
+    missing = [c for c in _REQUIRED_DECISION_COLUMNS if c not in decisions.columns]
+    if missing:
+        raise ValueError(
+            f"{context} decisions are missing required columns {missing}. {_APPLY_RAL_REDIRECT}"
+        )
+    ral = decisions["ral_policy"].map(_decision_token)
+    status = decisions["status"].map(_decision_token)
+    fas = decisions["fas_class"].map(_decision_token)
+    dqc = decisions["dqc_class"].map(_decision_token)
+    unapproved = (
+        ral.isin(_UNAPPROVED_RAL)
+        | status.isin(_UNAPPROVED_STATUS)
+        | fas.isin(_UNAPPROVED_FAS)
+        | dqc.isin(_UNAPPROVED_DQC)
+    )
+    if bool(unapproved.any()):
+        raise ValueError(f"{context} decisions are unapproved. {_APPLY_RAL_REDIRECT}")
+
 
 @dataclass(frozen=True)
 class RALPolicy:
@@ -87,8 +156,18 @@ class RALPolicy:
             and not self.uplift_table.empty
         )
 
-    def adjust_forecast(self, df: pd.DataFrame, forecast_col: str) -> pd.Series:
+    def adjust_forecast(
+        self,
+        df: pd.DataFrame,
+        forecast_col: str,
+        *,
+        decisions: pd.DataFrame | None = None,
+        apply_mask: pd.Series | None = None,
+    ) -> pd.Series:
         """Apply the RAL policy to adjust the forecast values.
+
+        Requires a valid governance ``decisions`` table or an approved
+        ``apply_mask``. Ungated calls raise.
 
         This method applies a single multiplicative uplift per row:
 
@@ -111,6 +190,11 @@ class RALPolicy:
         pd.Series
             A series with the adjusted forecast values.
         """
+        _require_approved_governance(
+            decisions=decisions,
+            apply_mask=apply_mask,
+            context="RALPolicy.adjust_forecast",
+        )
         # Ensure we treat the slice as a Series for arithmetic
         baseline = cast(pd.Series, df[forecast_col])
         global_u = float(self.global_uplift)
@@ -138,10 +222,28 @@ class RALPolicy:
         result_raw = arr_baseline * uplift_raw
         return pd.Series(result_raw, index=df.index, name="readiness_forecast")
 
-    def transform(self, df: pd.DataFrame, forecast_col: str) -> pd.DataFrame:
-        """Transform the input DataFrame by applying the forecast adjustment."""
+    def transform(
+        self,
+        df: pd.DataFrame,
+        forecast_col: str,
+        *,
+        decisions: pd.DataFrame | None = None,
+        apply_mask: pd.Series | None = None,
+    ) -> pd.DataFrame:
+        """Transform the input DataFrame by applying the forecast adjustment.
+
+        Requires a valid governance ``decisions`` table or an approved
+        ``apply_mask``. Ungated calls raise.
+        """
+        _require_approved_governance(
+            decisions=decisions,
+            apply_mask=apply_mask,
+            context="RALPolicy.transform",
+        )
         df_copy = df.copy()
-        df_copy["readiness_forecast"] = self.adjust_forecast(df_copy, forecast_col)
+        df_copy["readiness_forecast"] = self.adjust_forecast(
+            df_copy, forecast_col, decisions=decisions, apply_mask=apply_mask
+        )
         return df_copy
 
 
@@ -157,7 +259,8 @@ def apply_ral_policy(
     forecast_col: str,
     policy: RALPolicy = DEFAULT_RAL_POLICY,
 ) -> pd.DataFrame:
-    """Hard-deprecated ungated writer.
+    """Hard-deprecated. Always raises ValueError. Requires a governance
+    decisions table via electric_barometer.apply_ral (or eb_evaluation.apply_ral).
 
     This wrapper applied a RAL artifact without a governance decisions table.
     Callers must use ``electric_barometer.apply_ral`` (or ``eb_evaluation.apply_ral``)
@@ -288,8 +391,13 @@ class RALTwoBandPolicy:
         forecast_col: str,
         *,
         key_col: str | None = None,
+        decisions: pd.DataFrame | None = None,
+        apply_mask: pd.Series | None = None,
     ) -> pd.Series:
         """Apply the two-band additive RAL policy to a forecast column.
+
+        Requires a valid governance ``decisions`` table or an approved
+        ``apply_mask``. Ungated calls raise.
 
         Parameters
         ----------
@@ -306,6 +414,11 @@ class RALTwoBandPolicy:
         pd.Series
             Adjusted forecast values as a series named "readiness_forecast".
         """
+        _require_approved_governance(
+            decisions=decisions,
+            apply_mask=apply_mask,
+            context="RALTwoBandPolicy.adjust_forecast",
+        )
         baseline = cast(pd.Series, df[forecast_col])
         yhat = cast("np.ndarray[Any, np.dtype[np.float64]]", baseline.astype(float).values)
 
@@ -341,10 +454,27 @@ class RALTwoBandPolicy:
         forecast_col: str,
         *,
         key_col: str | None = None,
+        decisions: pd.DataFrame | None = None,
+        apply_mask: pd.Series | None = None,
     ) -> pd.DataFrame:
-        """Transform the input DataFrame by applying the forecast adjustment."""
+        """Transform the input DataFrame by applying the forecast adjustment.
+
+        Requires a valid governance ``decisions`` table or an approved
+        ``apply_mask``. Ungated calls raise.
+        """
+        _require_approved_governance(
+            decisions=decisions,
+            apply_mask=apply_mask,
+            context="RALTwoBandPolicy.transform",
+        )
         df_copy = df.copy()
-        df_copy["readiness_forecast"] = self.adjust_forecast(df_copy, forecast_col, key_col=key_col)
+        df_copy["readiness_forecast"] = self.adjust_forecast(
+            df_copy,
+            forecast_col,
+            key_col=key_col,
+            decisions=decisions,
+            apply_mask=apply_mask,
+        )
         return df_copy
 
     def to_dict(self) -> dict[str, Any]:
@@ -437,8 +567,13 @@ class RALThresholdTwoBandPolicy:
         forecast_col: str,
         *,
         key_col: str | None = None,
+        decisions: pd.DataFrame | None = None,
+        apply_mask: pd.Series | None = None,
     ) -> pd.Series:
         """Apply the canonical (threshold + delta) two-band RAL policy.
+
+        Requires a valid governance ``decisions`` table or an approved
+        ``apply_mask``. Ungated calls raise.
 
         Parameters
         ----------
@@ -455,6 +590,11 @@ class RALThresholdTwoBandPolicy:
         pd.Series
             Adjusted forecast values as a series named "readiness_forecast".
         """
+        _require_approved_governance(
+            decisions=decisions,
+            apply_mask=apply_mask,
+            context="RALThresholdTwoBandPolicy.adjust_forecast",
+        )
         baseline = cast(pd.Series, df[forecast_col])
         yhat = cast("np.ndarray[Any, np.dtype[np.float64]]", baseline.astype(float).values)
 
@@ -493,6 +633,8 @@ class RALThresholdTwoBandPolicy:
         key_col: str | None = None,
         lower: float = 0.0,
         upper: float | None = 1.0,
+        decisions: pd.DataFrame | None = None,
+        apply_mask: pd.Series | None = None,
     ) -> pd.Series:
         """Apply the canonical policy and optionally cap the adjusted forecast.
 
@@ -516,7 +658,13 @@ class RALThresholdTwoBandPolicy:
         pd.Series
             Adjusted and (optionally) capped forecast as "readiness_forecast".
         """
-        out = self.adjust_forecast(df, forecast_col, key_col=key_col).to_numpy(dtype=float)
+        out = self.adjust_forecast(
+            df,
+            forecast_col,
+            key_col=key_col,
+            decisions=decisions,
+            apply_mask=apply_mask,
+        ).to_numpy(dtype=float)
 
         if lower is not None:
             out = np.maximum(out, float(lower))
@@ -531,10 +679,27 @@ class RALThresholdTwoBandPolicy:
         forecast_col: str,
         *,
         key_col: str | None = None,
+        decisions: pd.DataFrame | None = None,
+        apply_mask: pd.Series | None = None,
     ) -> pd.DataFrame:
-        """Transform the input DataFrame by applying the forecast adjustment."""
+        """Transform the input DataFrame by applying the forecast adjustment.
+
+        Requires a valid governance ``decisions`` table or an approved
+        ``apply_mask``. Ungated calls raise.
+        """
+        _require_approved_governance(
+            decisions=decisions,
+            apply_mask=apply_mask,
+            context="RALThresholdTwoBandPolicy.transform",
+        )
         df_copy = df.copy()
-        df_copy["readiness_forecast"] = self.adjust_forecast(df_copy, forecast_col, key_col=key_col)
+        df_copy["readiness_forecast"] = self.adjust_forecast(
+            df_copy,
+            forecast_col,
+            key_col=key_col,
+            decisions=decisions,
+            apply_mask=apply_mask,
+        )
         return df_copy
 
     def to_dict(self) -> dict[str, Any]:

@@ -109,16 +109,20 @@ def snap_to_grid(
 
     Snapping arithmetic is the evaluation engine: ``math.ceil`` / ``math.floor``
     and half-away-from-zero for ``nearest`` (mapped to evaluation ``round``).
-    NaNs are preserved. ``nonneg=True`` clamps after snapping.
+    Non-finite cells raise. ``nonneg=True`` clamps after snapping.
 
     Args:
-        x: Array of values to snap (may include NaNs).
+        x: Array of values to snap. Must be finite.
         delta: Grid size (Δ). Must be > 0.
         mode: Nearest, floor, or ceil snapping.
         nonneg: If True, clamps to >= 0 after snapping.
 
     Returns:
-        Snapped array (float dtype), preserving NaNs.
+        Snapped array (float dtype).
+
+    Raises:
+        ValueError
+            If any cell is NaN or ±inf.
     """
     if not (isinstance(delta, int | float) and delta > 0.0):
         raise ValueError(f"delta must be > 0; got {delta!r}")
@@ -128,28 +132,25 @@ def snap_to_grid(
         raise ValueError(f"Unsupported mode: {mode!r}")
 
     x = np.asarray(x, dtype=float)
-    out = np.full_like(x, np.nan, dtype=float)
+    if x.size and not bool(np.isfinite(x).all()):
+        raise ValueError(
+            "snap_to_grid values must be finite; refusing fail-open NaN/inf forecasts."
+        )
 
-    m = np.isfinite(x)
-    if not np.any(m):
-        return out
-
-    finite = x[m].tolist()
+    values = x.tolist()
     try:
         from eb_evaluation.diagnostics.governance import snap_to_grid as eval_snap
 
-        snapped = np.asarray(eval_snap(finite, float(delta), mode=eval_mode), dtype=float)
+        snapped = np.asarray(eval_snap(values, float(delta), mode=eval_mode), dtype=float)
     except ImportError:  # pragma: no cover - evaluation is optional at import
         snapped = np.asarray(
-            _snap_eval_math(finite, float(delta), mode=eval_mode),
+            _snap_eval_math(values, float(delta), mode=eval_mode),
             dtype=float,
         )
 
     if nonneg:
         snapped = np.maximum(snapped, 0.0)
-
-    out[m] = snapped
-    return out
+    return snapped
 
 
 def _type_label(obj: Any) -> str:
@@ -386,7 +387,8 @@ def enforce_snapping(
 
     Raises:
         ValueError: If class is UNKNOWN, unrecognized, or QUANTIZED/PACKED without a
-            finite positive Δ*.
+            finite positive Δ*. When snapping is enforced, non-finite forecast
+            cells also raise.
     """
     y_hat_arr = np.asarray(y_hat, dtype=float)
 

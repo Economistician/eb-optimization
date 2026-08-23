@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-08-23
+
 ### Changed
 
 - `apply_ral_policy` is hard-deprecated and always raises `ValueError`, directing callers to `electric_barometer.apply_ral` (or `eb_evaluation.apply_ral`) with a governance decisions table.
+- `RALPolicy.transform` / `adjust_forecast`, `RALTwoBandPolicy.transform`, and `RALThresholdTwoBandPolicy.transform` require an approved governance decisions table or apply mask.
+- `snap_to_grid` and `enforce_snapping` raise `ValueError` on non-finite forecast cells when snapping is enforced.
+- Runtime pin is `eb-evaluation==0.2.9`.
 
 ## [0.2.6] - 2026-08-23
 
