@@ -50,9 +50,18 @@ def test_tune_ral_policy_global_uplift():
     y_pred = df["forecast"].to_numpy(dtype=float)
 
     original_cwsl = cwsl(y_true, y_pred, cu=cu, co=co)
-    y_pred_adj = policy.adjust_forecast(
-        df, forecast_col="forecast", apply_mask=pd.Series(True, index=df.index)
-    ).to_numpy(dtype=float)
+    approved = pd.DataFrame(
+        {
+            "ral_policy": ["allow"],
+            "status": ["green"],
+            "fas_class": ["ALLOWED"],
+            "dqc_class": ["CONTINUOUS"],
+            "snap_required": [False],
+        }
+    )
+    y_pred_adj = policy.adjust_forecast(df, forecast_col="forecast", decisions=approved).to_numpy(
+        dtype=float
+    )
     adjusted_cwsl = cwsl(y_true, y_pred_adj, cu=cu, co=co)
 
     assert adjusted_cwsl <= original_cwsl

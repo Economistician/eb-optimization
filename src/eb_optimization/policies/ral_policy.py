@@ -64,18 +64,19 @@ def _require_approved_governance(
     apply_mask: pd.Series | None,
     context: str,
 ) -> None:
-    """Refuse ungated artifact writes unless a decisions table or mask is approved."""
-    if decisions is None and apply_mask is None:
+    """Refuse artifact writes unless a valid approved decisions table is present.
+
+    ``apply_mask`` is an optional extra constraint and cannot authorize writes
+    without ``decisions``.
+    """
+    if decisions is None:
         raise ValueError(
-            f"{context} requires a valid governance decisions table or apply_mask. "
-            f"{_APPLY_RAL_REDIRECT}"
+            f"{context} requires a valid governance decisions table. {_APPLY_RAL_REDIRECT}"
         )
     if apply_mask is not None and (
         bool(pd.isna(apply_mask).any()) or not bool(apply_mask.to_numpy(dtype=bool).all())
     ):
         raise ValueError(f"{context} apply_mask is unapproved. {_APPLY_RAL_REDIRECT}")
-    if decisions is None:
-        return
     if decisions.empty:
         raise ValueError(f"{context} decisions are missing or empty. {_APPLY_RAL_REDIRECT}")
     missing = [c for c in _REQUIRED_DECISION_COLUMNS if c not in decisions.columns]
@@ -166,8 +167,9 @@ class RALPolicy:
     ) -> pd.Series:
         """Apply the RAL policy to adjust the forecast values.
 
-        Requires a valid governance ``decisions`` table or an approved
-        ``apply_mask``. Ungated calls raise.
+        Requires a valid approved governance ``decisions`` table.
+        ``apply_mask`` cannot authorize writes without ``decisions``.
+        Ungated calls raise.
 
         This method applies a single multiplicative uplift per row:
 
@@ -232,8 +234,9 @@ class RALPolicy:
     ) -> pd.DataFrame:
         """Transform the input DataFrame by applying the forecast adjustment.
 
-        Requires a valid governance ``decisions`` table or an approved
-        ``apply_mask``. Ungated calls raise.
+        Requires a valid approved governance ``decisions`` table.
+        ``apply_mask`` cannot authorize writes without ``decisions``.
+        Ungated calls raise.
         """
         _require_approved_governance(
             decisions=decisions,
@@ -396,8 +399,9 @@ class RALTwoBandPolicy:
     ) -> pd.Series:
         """Apply the two-band additive RAL policy to a forecast column.
 
-        Requires a valid governance ``decisions`` table or an approved
-        ``apply_mask``. Ungated calls raise.
+        Requires a valid approved governance ``decisions`` table.
+        ``apply_mask`` cannot authorize writes without ``decisions``.
+        Ungated calls raise.
 
         Parameters
         ----------
@@ -459,8 +463,9 @@ class RALTwoBandPolicy:
     ) -> pd.DataFrame:
         """Transform the input DataFrame by applying the forecast adjustment.
 
-        Requires a valid governance ``decisions`` table or an approved
-        ``apply_mask``. Ungated calls raise.
+        Requires a valid approved governance ``decisions`` table.
+        ``apply_mask`` cannot authorize writes without ``decisions``.
+        Ungated calls raise.
         """
         _require_approved_governance(
             decisions=decisions,
@@ -572,8 +577,9 @@ class RALThresholdTwoBandPolicy:
     ) -> pd.Series:
         """Apply the canonical (threshold + delta) two-band RAL policy.
 
-        Requires a valid governance ``decisions`` table or an approved
-        ``apply_mask``. Ungated calls raise.
+        Requires a valid approved governance ``decisions`` table.
+        ``apply_mask`` cannot authorize writes without ``decisions``.
+        Ungated calls raise.
 
         Parameters
         ----------
@@ -684,8 +690,9 @@ class RALThresholdTwoBandPolicy:
     ) -> pd.DataFrame:
         """Transform the input DataFrame by applying the forecast adjustment.
 
-        Requires a valid governance ``decisions`` table or an approved
-        ``apply_mask``. Ungated calls raise.
+        Requires a valid approved governance ``decisions`` table.
+        ``apply_mask`` cannot authorize writes without ``decisions``.
+        Ungated calls raise.
         """
         _require_approved_governance(
             decisions=decisions,
