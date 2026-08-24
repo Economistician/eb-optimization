@@ -217,6 +217,26 @@ class EntityCostRatioEstimate:
     curves: dict[Any, pd.DataFrame]
 
 
+def _linear_cost_balance_curve(
+    *,
+    grid: np.ndarray,
+    under_k: float,
+    over_cost_const: float,
+) -> pd.DataFrame:
+    """Materialize under/over/gap for the linear form ``under_cost = R * under_k``."""
+    grid_f = np.asarray(grid, dtype=float)
+    under_costs = grid_f * float(under_k)
+    over = float(over_cost_const)
+    return pd.DataFrame(
+        {
+            "R": grid_f,
+            "under_cost": under_costs,
+            "over_cost": np.full(shape=grid_f.shape, fill_value=over, dtype=float),
+            "gap": np.abs(under_costs - over),
+        }
+    )
+
+
 # ---------------------------------------------------------------------
 # Global calibration (array-like)
 # ---------------------------------------------------------------------
@@ -339,12 +359,7 @@ def estimate_R_cost_balance(
 
     # Precompute the over_cost component (independent of R)
     over_cost_const = float(np.sum(w_f * co_arr_f * overbuild))
-
-    def _compute_under_over_gap(R: float) -> tuple[float, float, float]:
-        cu_arr = float(R) * co_arr_f
-        under_cost = float(np.sum(w_f * cu_arr * shortfall))
-        gap = abs(under_cost - over_cost_const)
-        return under_cost, over_cost_const, gap
+    under_k = float(np.sum(w_f * co_arr_f * shortfall))
 
     def _select_R_from_curve(curve_df: pd.DataFrame, grid: np.ndarray) -> float:
         if selection == "curve":
@@ -367,20 +382,10 @@ def estimate_R_cost_balance(
 
     def _run_on_grid(grid: np.ndarray) -> float:
         # Build curve for this grid and select R* with consistent tie-breaking.
-        under_list: list[float] = []
-        gap_list: list[float] = []
-        for R in grid:
-            u, _o, g = _compute_under_over_gap(float(R))
-            under_list.append(u)
-            gap_list.append(g)
-
-        curve_df = pd.DataFrame(
-            {
-                "R": grid.astype(float),
-                "under_cost": np.asarray(under_list, dtype=float),
-                "over_cost": np.full(shape=grid.shape, fill_value=over_cost_const, dtype=float),
-                "gap": np.asarray(gap_list, dtype=float),
-            }
+        curve_df = _linear_cost_balance_curve(
+            grid=grid,
+            under_k=under_k,
+            over_cost_const=over_cost_const,
         )
         return _select_R_from_curve(curve_df, grid)
 
@@ -447,21 +452,10 @@ def estimate_R_cost_balance(
         )
 
     # Build sensitivity curve (diagnostics) once for the base grid
-    under_list_base: list[float] = []
-    gap_list_base: list[float] = []
-
-    for R in positive_R:
-        u, _o, g = _compute_under_over_gap(float(R))
-        under_list_base.append(u)
-        gap_list_base.append(g)
-
-    curve = pd.DataFrame(
-        {
-            "R": positive_R.astype(float),
-            "under_cost": np.asarray(under_list_base, dtype=float),
-            "over_cost": np.full(shape=positive_R.shape, fill_value=over_cost_const, dtype=float),
-            "gap": np.asarray(gap_list_base, dtype=float),
-        }
+    curve = _linear_cost_balance_curve(
+        grid=positive_R,
+        under_k=under_k,
+        over_cost_const=over_cost_const,
     )
 
     # Select R* using the requested strategy on the base curve/grid
@@ -679,33 +673,18 @@ def estimate_entity_R_from_balance(
 
         # Precompute entity-specific over_cost constant (independent of R)
         over_cost_const = float(np.sum(w_f * co_f * overbuild))
+        under_k = float(np.sum(w_f * shortfall)) * co_f
 
         def _build_curve(
             grid: np.ndarray,
             *,
-            _co_f: float = co_f,
-            _w_f: np.ndarray = w_f,
-            _shortfall: np.ndarray = shortfall,
+            _under_k: float = under_k,
             _over_cost_const: float = over_cost_const,
         ) -> pd.DataFrame:
-            under_list: list[float] = []
-            gap_list: list[float] = []
-            for R in grid:
-                cu_val = float(R) * _co_f
-                under_cost = float(np.sum(_w_f * cu_val * _shortfall))
-                gap = abs(under_cost - _over_cost_const)
-                under_list.append(under_cost)
-                gap_list.append(gap)
-
-            return pd.DataFrame(
-                {
-                    "R": grid.astype(float),
-                    "under_cost": np.asarray(under_list, dtype=float),
-                    "over_cost": np.full(
-                        shape=grid.shape, fill_value=_over_cost_const, dtype=float
-                    ),
-                    "gap": np.asarray(gap_list, dtype=float),
-                }
+            return _linear_cost_balance_curve(
+                grid=grid,
+                under_k=_under_k,
+                over_cost_const=_over_cost_const,
             )
 
         def _select_R_from_curve(curve_df: pd.DataFrame, grid: np.ndarray) -> float:

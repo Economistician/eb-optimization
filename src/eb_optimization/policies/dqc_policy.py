@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from math import ceil, floor, isfinite
+from math import isfinite
 from typing import Any, Literal
 
 import numpy as np
@@ -82,21 +82,22 @@ DQCResultSummary = DQCResult
 _EVAL_SNAP_MODE = {"nearest": "round", "floor": "floor", "ceil": "ceil"}
 
 
+def _snap_eval_array(values: np.ndarray, unit: float, *, mode: str) -> np.ndarray:
+    """Vectorized snap matching evaluation ``_snap_to_grid_array`` arithmetic."""
+    inv = 1.0 / unit
+    q = values * inv
+    if mode == "ceil":
+        qi = np.ceil(q)
+    elif mode == "floor":
+        qi = np.floor(q)
+    else:
+        qi = np.where(q >= 0.0, np.floor(q + 0.5), np.ceil(q - 0.5))
+    return qi * unit
+
+
 def _snap_eval_math(values: Sequence[float], unit: float, *, mode: str) -> list[float]:
     """Match ``eb_evaluation.diagnostics.governance.snap_to_grid`` arithmetic."""
-    snapped: list[float] = []
-    inv = 1.0 / unit
-    for v in values:
-        fv = float(v)
-        q = fv * inv
-        if mode == "ceil":
-            qi = ceil(q)
-        elif mode == "floor":
-            qi = floor(q)
-        else:
-            qi = floor(q + 0.5) if q >= 0.0 else ceil(q - 0.5)
-        snapped.append(float(qi) * unit)
-    return snapped
+    return _snap_eval_array(np.asarray(values, dtype=float), unit, mode=mode).tolist()
 
 
 def snap_to_grid(
@@ -108,9 +109,9 @@ def snap_to_grid(
 ) -> np.ndarray:
     """Project values onto multiples of delta.
 
-    Snapping arithmetic is the evaluation engine: ``math.ceil`` / ``math.floor``
-    and half-away-from-zero for ``nearest`` (mapped to evaluation ``round``).
-    Non-finite cells raise. ``nonneg=True`` clamps after snapping.
+    Snapping arithmetic is the evaluation ``_snap_to_grid_array`` kernel:
+    ``np.ceil`` / ``np.floor`` and half-away-from-zero for ``nearest`` (mapped to
+    evaluation ``round``). Non-finite cells raise. ``nonneg=True`` clamps after snapping.
 
     Args:
         x: Array of values to snap. Must be finite.
@@ -138,16 +139,14 @@ def snap_to_grid(
             "snap_to_grid values must be finite; refusing fail-open NaN/inf forecasts."
         )
 
-    values = x.tolist()
     try:
-        from eb_evaluation.diagnostics.governance import snap_to_grid as eval_snap
+        from eb_evaluation.diagnostics.governance import _snap_to_grid_array as eval_snap_array
 
-        snapped = np.asarray(eval_snap(values, float(delta), mode=eval_mode), dtype=float)
+        snapped = eval_snap_array(x, float(delta), mode=eval_mode)
     except ImportError:  # pragma: no cover - evaluation is optional at import
-        snapped = np.asarray(
-            _snap_eval_math(values, float(delta), mode=eval_mode),
-            dtype=float,
-        )
+        snapped = _snap_eval_array(x, float(delta), mode=eval_mode)
+
+    snapped = np.asarray(snapped, dtype=float)
 
     if nonneg:
         snapped = np.maximum(snapped, 0.0)

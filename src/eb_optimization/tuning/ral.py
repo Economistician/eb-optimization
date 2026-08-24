@@ -141,35 +141,17 @@ def _find_best_uplift(
     co: float,
 ) -> tuple[float, dict[str, float]]:
     """Find the best uplift for a single segment by minimizing |under_cost - over_cost|."""
-    best_uplift: float | None = None
-    best_diff: float | None = None
-    best_under_cost: float | None = None
-    best_over_cost: float | None = None
-
-    over_cost = float(np.sum(weights * float(co) * overbuild))
-
-    for uplift in uplift_grid:
-        uplift_f = float(uplift)
-        cu_val = uplift_f * float(cu)
-        under_cost = float(np.sum(weights * cu_val * shortfall))
-        diff = abs(under_cost - over_cost)
-
-        if best_diff is None or diff < best_diff:
-            best_diff = diff
-            best_uplift = uplift_f
-            best_under_cost = under_cost
-            best_over_cost = over_cost
-
-    if (
-        best_uplift is None
-        or best_diff is None
-        or best_under_cost is None
-        or best_over_cost is None
-    ):
+    grid = np.asarray(uplift_grid, dtype=float)
+    if grid.size == 0:
         raise ValueError("uplift_grid must be non-empty.")
 
-    return best_uplift, {
-        "under_cost": best_under_cost,
-        "over_cost": best_over_cost,
-        "diff": best_diff,
+    over_cost = float(np.sum(weights * float(co) * overbuild))
+    under_k = float(np.sum(weights * shortfall)) * float(cu)
+    under_costs = grid * under_k
+    diffs = np.abs(under_costs - over_cost)
+    best_i = int(np.argmin(diffs))
+    return float(grid[best_i]), {
+        "under_cost": float(under_costs[best_i]),
+        "over_cost": over_cost,
+        "diff": float(diffs[best_i]),
     }

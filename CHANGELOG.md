@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Vectorize linear cost-balance grids in `estimate_R_cost_balance`, `estimate_entity_R_from_balance`, and RAL `_find_best_uplift`.
+- `snap_to_grid` calls evaluation `_snap_to_grid_array` on ndarray inputs instead of round-tripping through Python lists.
+
 ## [0.2.7] - 2026-08-23
 
 ### Changed
