@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-08-24
+
+### Changed
+
+- Pinned sibling packages to System Release 0.2.10 (`eb-metrics==0.2.9`, `eb-evaluation==0.2.10`).
+
 ### Performance
 
 - Vectorize linear cost-balance grids in `estimate_R_cost_balance`, `estimate_entity_R_from_balance`, and RAL `_find_best_uplift`.

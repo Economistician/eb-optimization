@@ -3,7 +3,7 @@
 ######################################
 [project]
 name = "eb-optimization"
-version = "0.2.7"
+version = "0.2.8"
 description = "Electric Barometer: Optimization and tuning utilities for EB objectives and policy parameters."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -41,8 +41,8 @@ classifiers = [
 dependencies = [
   "numpy>=1.24",
   "pandas>=2.0",
-  "eb-metrics==0.2.8",
-  "eb-evaluation==0.2.9",
+  "eb-metrics==0.2.9",
+  "eb-evaluation==0.2.10",
 ]
 
 ######################################
@@ -62,8 +62,8 @@ Documentation = "https://github.com/Economistician/eb-docs"
 # EB ecosystem deps (metrics primitives, diagnostics contracts)
 # Use this when you want DQC diagnostics from eb-evaluation and HR@τ primitive from eb-metrics.
 eb = [
-  "eb-metrics==0.2.8",
-  "eb-evaluation==0.2.9",
+  "eb-metrics==0.2.9",
+  "eb-evaluation==0.2.10",
 ]
 
 # Optional optimization backends (future-proofing)
@@ -88,8 +88,8 @@ dev = [
 # Aggregates EB ecosystem dependencies and test tooling.
 all = [
   # EB ecosystem deps
-  "eb-metrics==0.2.8",
-  "eb-evaluation==0.2.9",
+  "eb-metrics==0.2.9",
+  "eb-evaluation==0.2.10",
 
   # test deps
   "pytest>=8.0",
