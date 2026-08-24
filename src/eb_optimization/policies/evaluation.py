@@ -82,7 +82,7 @@ def evaluate_with_dqc_hr(
         policy: Legacy DQCPolicy (used only when computing DQC locally for
             backwards compatibility).
         enforce: Snapping enforcement behavior. Defaults to ``"snap"``.
-            ``"ignore"`` is an explicit opt-in and is never the implicit default.
+            ``enforce="ignore"`` is hard-deprecated and raises ``ValueError``.
         snap_mode: Snapping mode applied when enforce == "snap".
         use_positive_only_for_dqc: If True, DQC detection uses y>0 values.
 
@@ -92,9 +92,10 @@ def evaluate_with_dqc_hr(
 
         Raises:
         ImportError: If eb-metrics is not available.
-        ValueError: If enforcement mode is "raise" and forecasts are off-grid,
-            if DQC class is UNKNOWN / insufficient evidence, or if QUANTIZED/PACKED
-            demand is missing a finite positive Δ*.
+        ValueError: If ``enforce="ignore"``; if enforcement mode is "raise" and
+            forecasts are off-grid; if DQC class is UNKNOWN / insufficient
+            evidence; or if QUANTIZED/PACKED demand is missing a finite
+            positive Δ*.
     """
     if _hr_at_tau is None:  # pragma: no cover
         raise ImportError("eb-metrics is required (missing eb_metrics.metrics.service.hr_at_tau).")
